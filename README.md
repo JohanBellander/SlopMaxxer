@@ -149,7 +149,14 @@ Like T3 Code, it picks up whatever is installed:
 - extra logins in sibling folders: `~/.claude-personal`, `~/.codex-work`, `~/.claude2`, …
 - anything you list in `~/.slopmaxxer/config.json`
 
-Claude usage readings are cached for five minutes in the state directory (`~/.slopmaxxer/claude-usage/`
+Claude usage first comes from Claude Code's own `cachedUsageUtilization` in `~/.claude.json`
+(or `.claude.json` inside a custom Claude config directory). No status-line setup is needed.
+The reading must match the logged-in account, be less than one hour old, contain valid session
+and weekly percentages, and have no elapsed window resets. These are cached readings with their
+original timestamp, not new samples. Claude's files are only read, never modified.
+
+When that local reading is unavailable or outdated, SlopMaxxer falls back to the usage API.
+API readings are cached for five minutes in the state directory (`~/.slopmaxxer/claude-usage/`
 by default). Instances sharing that directory reuse readings and coordinate requests, including manual
 refreshes. HTTP 429 responses trigger exponential backoff from five minutes up to one hour; a longer
 `Retry-After` is honored. Cached readings show their timestamp and are not counted as new usage samples.

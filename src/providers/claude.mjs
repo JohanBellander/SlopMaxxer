@@ -13,11 +13,14 @@ function readJson(p) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
 }
 
-function identity(dir) {
+function metadata(dir) {
   // Default install keeps account info in ~/.claude.json; CLAUDE_CONFIG_DIR installs keep it inside the dir.
   const isDefault = path.resolve(dir).toLowerCase() === path.join(os.homedir(), '.claude').toLowerCase();
-  const meta = readJson(isDefault ? path.join(os.homedir(), '.claude.json') : path.join(dir, '.claude.json'))
+  return readJson(isDefault ? path.join(os.homedir(), '.claude.json') : path.join(dir, '.claude.json'))
     || readJson(path.join(dir, '.claude.json'));
+}
+
+function identity(meta) {
   const acct = meta?.oauthAccount || {};
   return {
     email: acct.emailAddress || null,
@@ -25,6 +28,22 @@ function identity(dir) {
     org: acct.organizationName || null,
     accountKey: acct.accountUuid ? `${acct.accountUuid}:${acct.organizationUuid || ''}` : null,
   };
+}
+
+// Claude Code's private on-disk format: fail closed if the account, age, or shape is unknown.
+export function localClaudeUsage(meta, now = Date.now()) {
+  const cache = meta?.cachedUsageUtilization;
+  if (!meta?.oauthAccount?.accountUuid || cache?.accountUuid !== meta.oauthAccount.accountUuid) return null;
+  if (!Number.isFinite(cache.fetchedAtMs) || cache.fetchedAtMs > now || now - cache.fetchedAtMs >= 3600_000) return null;
+  const usage = cache.utilization;
+  if (!usage || !usage.five_hour || !usage.seven_day) return null;
+  for (const key of ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet']) {
+    const w = usage[key];
+    if (w == null) continue;
+    if (!Number.isFinite(w.utilization) || w.utilization < 0 || w.utilization > 100) return null;
+    if (w.resets_at != null && (typeof w.resets_at !== 'string' || !Number.isFinite(Date.parse(w.resets_at)) || Date.parse(w.resets_at) <= now)) return null;
+  }
+  return { usage, fetchedAt: cache.fetchedAtMs, cached: true, source: 'Claude Code local cache' };
 }
 
 const TIER_NAMES = {
@@ -63,9 +82,10 @@ function toWindow(kind, label, w, windowSeconds) {
   };
 }
 
-export async function fetchClaude({ dir }) {
+export async function fetchClaude({ dir }, { home = SLOP_HOME, request = fetch } = {}) {
   const creds = readJson(path.join(dir, '.credentials.json'))?.claudeAiOauth;
-  const id = identity(dir);
+  const meta = metadata(dir);
+  const id = identity(meta);
   const base = {
     provider: 'claude',
     dir,
@@ -73,20 +93,21 @@ export async function fetchClaude({ dir }) {
     ...planOf(creds),
   };
   if (!creds?.accessToken) return { ...base, error: 'Not logged in (no OAuth token)' };
-  if (creds.expiresAt && creds.expiresAt < Date.now()) {
+  const local = localClaudeUsage(meta);
+  if (!local && creds.expiresAt && creds.expiresAt < Date.now()) {
     return { ...base, error: 'Token expired — open Claude Code once and it refreshes itself', stale: true };
   }
 
-  const reading = await cachedClaudeUsage({
-    home: SLOP_HOME,
+  const reading = local || await cachedClaudeUsage({
+    home,
     key: id.accountKey || creds.accessToken,
-    request: () => fetch(USAGE_URL, {
-    headers: {
-      Authorization: `Bearer ${creds.accessToken}`,
-      'anthropic-beta': 'oauth-2025-04-20',
-      'User-Agent': 'slopmaxxer',
-    },
-    signal: AbortSignal.timeout(15000),
+    request: () => request(USAGE_URL, {
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        'anthropic-beta': 'oauth-2025-04-20',
+        'User-Agent': 'slopmaxxer',
+      },
+      signal: AbortSignal.timeout(15000),
     }),
   });
   const retry = reading.error && reading.retryAt ? `; next attempt after ${new Date(reading.retryAt).toISOString()}` : '';
@@ -103,7 +124,7 @@ export async function fetchClaude({ dir }) {
   return {
     ...base,
     stale: reading.cached,
-    note: reading.cached ? `${reading.error ? reading.error + '; ' : ''}cached Claude reading from ${new Date(reading.fetchedAt).toISOString()}${retry}` : undefined,
+    note: reading.cached ? `${reading.error ? reading.error + '; ' : ''}${reading.source || 'cached Claude reading'} from ${new Date(reading.fetchedAt).toISOString()}${retry}` : undefined,
     windows,
     extraUsage: u.extra_usage?.is_enabled
       ? { utilization: u.extra_usage.utilization, currency: u.extra_usage.currency }
