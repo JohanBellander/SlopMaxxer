@@ -13,13 +13,15 @@ const DAY = 86400_000;
 
 const iso = (ms) => (ms ? new Date(ms).toISOString() : null);
 
-function toWindow(w) {
+function toWindow(w, observedAt) {
   if (!w) return null;
   return {
-    active: !w.idle && !!w.resetsAt,
-    usedPct: Math.round(w.usedPercent),
-    resetsAt: iso(w.resetsAt),
-    burnPctPerHour: Math.round((w.ratePerHour || 0) * 1000) / 1000,
+    kind: w.kind, label: w.label || w.kind,
+    scope: w.scope || (w.kind === 'weekly_opus' ? 'opus' : w.kind === 'weekly_sonnet' ? 'sonnet' : 'all'),
+    active: !w.idle, usedPct: w.usedPercent,
+    resetsAt: iso(w.resetsAt), observedAt: iso(w.observedAt ?? observedAt),
+    durationMin: w.windowSeconds ? w.windowSeconds / 60 : null,
+    rate: w.rate || { confidence: 'learning' }, outlook: w.outlook || null,
   };
 }
 
@@ -40,8 +42,8 @@ export function dailyFromSamples(samples, now = Date.now()) {
 }
 
 function launchCommand(a) {
-  const isDefault = (a.dirs || [a.dir]).some((d) => path.resolve(d) === path.join(os.homedir(), `.${a.provider}`));
-  if (isDefault) return a.provider;
+  const isDefault = (a.dirs || [a.dir]).some((d) => d && path.resolve(d) === path.join(os.homedir(), `.${a.provider}`));
+  if (isDefault || !a.dir) return a.provider;
   const env = a.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
   return process.platform === 'win32' ? `$env:${env}="${a.dir}"; ${a.provider}` : `${env}="${a.dir}" ${a.provider}`;
 }
@@ -49,7 +51,9 @@ function launchCommand(a) {
 const slugify = (s) => String(s || 'unknown').toLowerCase().trim().replace(/\s+/g, '-');
 
 export function toSlopAccount(a, now = Date.now()) {
-  const by = (kind) => (a.windows || []).find((w) => w.kind === kind);
+  const observedAt = a.observedAt ?? (a.stale || a.error ? null : now);
+  const windows = (a.windows || []).map(w => toWindow(w, observedAt));
+  const by = kind => windows.find(w => w.kind === kind) || null;
   const domain = (a.email || '').split('@')[1]?.split('.')[0];
   return {
     id: a.id,
@@ -58,8 +62,10 @@ export function toSlopAccount(a, now = Date.now()) {
     planSlug: a.planSlug || slugify(a.plan),
     label: a.nickname || domain || path.basename(a.dir || ''),
     email: a.email || a.dir,
-    fiveHour: a.windows ? toWindow(by('session')) : undefined,
-    weekly: toWindow(by('weekly')) || { active: false, usedPct: 0, resetsAt: null, burnPctPerHour: 0 },
+    windows, observedAt: iso(observedAt),
+    fiveHour: by('session'), weekly: by('weekly'),
+    completedWindows: a.completedWindows || [],
+    limitReached: !!a.limitReached, extraUsage: a.extraUsage || null,
     dailyPct: a.daily?.pct || dailyFromSamples(a.spark || [], now),
     dailyEstimated: a.daily?.estimated || null,
     historySource: a.daily?.source || null,
@@ -85,60 +91,32 @@ function readEvents() {
   } catch { return []; }
 }
 
-const hm = (isoStr) => { const d = new Date(isoStr); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
-const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${String(Math.round(m % 60)).padStart(2, '0')}m` : `${Math.round(m)}m`);
-
-/** Compare the new derived view with the previous state and describe what changed. */
+/** Describe observed changes, never manufacture HTTP 429 events from a forecast. */
 export function diffEvents(prev, vm, nowIso) {
   const out = [];
-  const ev = (level, accountId, msg) => out.push({ ts: nowIso, level, accountId, msg });
-  const today = new Date(nowIso).toDateString();
-  if (prev.day && prev.day !== today) ev('CRON', null, 'gm. feed the slop today');
-
   for (const a of vm.accounts) {
-    const name = `${a.slug} ${a.label}`;
     const p = prev.accounts?.[a.id];
-    if (!p) {
-      ev('INFO', a.id, `found ${name} · ${a.email}`);
-      continue;
-    }
-    if (p.weekReset && a.week.resetsAt && Date.parse(a.week.resetsAt) - Date.parse(p.weekReset) > 3600_000) {
-      ev('CRON', a.id, `weekly refill landed · ${name}`);
-    }
-    if (p.status !== 'unknown' && p.fiveActive === false && a.five.active) ev('INFO', a.id, `5h window opened · ${name}`);
-    if (p.status === a.status) continue;
-    switch (a.status) {
-      case 'cooked': {
-        const back = a.five.usedPct >= 100 ? a.five.resetsAt : a.week.resetsAt;
-        ev('429', a.id, `${name} hit the wall. cooked till ${back ? hm(back) : '?'}`);
-        break;
-      }
-      case 'slowdown':
-        ev('WARN', a.id, a.five.capInMin != null ? `${name} burning hot · 5h cap in ~${dur(a.five.capInMin)}` : `${name} on track to cap the weekly early`);
-        break;
-      case 'useit': ev('TIP', a.id, `${name} is starving. feed the slop`); break;
-      case 'pickup': ev('WARN', a.id, `${name} ${Math.abs(a.week.paceDelta)}pt behind the pace line`); break;
-      case 'onpace': ev('INFO', a.id, `${name} back on pace`); break;
-      case 'asleep': ev('INFO', a.id, `${name} asleep · send a prompt to start the 5h clock`); break;
-      case 'unknown': ev('WARN', a.id, `${name}: ${a.error || 'no data'}`); break;
-    }
-  }
-  if (prev.rank && prev.rank !== vm.rank.name) {
-    const up = (prev.score ?? 0) < vm.score;
-    ev('RANK', null, `ranked ${up ? 'up' : 'down'}: ${prev.rank} → ${vm.rank.name}`);
+    if (!p || p.status !== a.status) out.push({ ts: nowIso, level: a.status === 'blocked' ? 'WARN' : 'INFO',
+      accountId: a.id, msg: `${a.slug} ${a.label}: ${a.action}. ${a.reason}` });
+    if (p && a.fresh && a.week.resetsAt && p.weekReset && Date.parse(a.week.resetsAt) > Date.parse(p.weekReset))
+      out.push({ ts: nowIso, level: 'INFO', accountId: a.id, msg: `${a.slug} ${a.label}: new weekly window observed.` });
   }
   return out;
 }
 
-function stateOf(vm, nowIso) {
-  return {
-    day: new Date(nowIso).toDateString(),
-    rank: vm.rank.name,
-    score: vm.score,
-    accounts: Object.fromEntries(
-      vm.accounts.map((a) => [a.id, { status: a.status, fiveActive: a.five.active, weekReset: a.week.resetsAt || null }]),
-    ),
-  };
+export function stateOf(vm, nowIso, prev = {}) {
+  const interval = (Date.parse(nowIso) - Date.parse(prev.at)) / 60000;
+  let opportunityMinutes = prev.opportunityMinutes || 0;
+  const mixed = vm.accounts.some(a => a.status === 'blocked') && vm.accounts.some(a => a.usable && a.status !== 'restricted');
+  const ids = vm.accounts.filter(a => a.status === 'blocked').map(a => a.id).sort().join(',');
+  const available = vm.accounts.filter(a => a.usable && a.status !== 'restricted').map(a => a.id);
+  // Count observed intervals only; gaps and reset crossings are not lost work.
+  const sameWindows = vm.accounts.every(a => a.windows.every(w => prev.accounts?.[a.id]?.resets?.[w.kind] === w.resetsAt));
+  if (mixed && prev.mixed && ids === prev.blockedIds && available.some(id => prev.available?.includes(id)) &&
+      sameWindows && interval > 0 && interval <= 5) opportunityMinutes += interval;
+  return { version: 2, nextId: vm.next?.id || null, at: nowIso, mixed, blockedIds: ids, available, opportunityMinutes,
+    accounts: Object.fromEntries(vm.accounts.map(a => [a.id, { status: a.status, weekReset: a.week.resetsAt,
+      resets: Object.fromEntries(a.windows.map(w => [w.kind, w.resetsAt])) }])) };
 }
 
 /** Build the SlopSnapshot from a collect() result, appending any new events to the log. */
@@ -146,21 +124,22 @@ export function buildSlopSnapshot(collected, { ms = null, persist = true } = {})
   const now = collected.generatedAt;
   const nowIso = iso(now);
   const accounts = collected.accounts.map((a) => toSlopAccount(a, now));
-  const vm = derive({ now: nowIso, accounts, events: [] });
-
-  let events = readEvents();
+  const prev = readJson(STATE_FILE, {});
+  const vm = derive({ now: nowIso, accounts, events: [], previousId: prev.version === 2 ? prev.nextId : null });
+  const nextState = stateOf(vm, nowIso, prev);
+  let events = prev.version === 2 ? readEvents() : [];
   if (persist) {
-    const fresh = diffEvents(readJson(STATE_FILE, {}), vm, nowIso);
+    const fresh = diffEvents(prev.version === 2 ? prev : {}, vm, nowIso);
     if (fresh.length) {
       events = [...events, ...fresh].slice(-EVENTS_KEEP);
       fs.mkdirSync(SLOP_HOME, { recursive: true });
       fs.writeFileSync(EVENTS_FILE, events.map((e) => JSON.stringify(e)).join('\n') + '\n');
     }
     fs.mkdirSync(SLOP_HOME, { recursive: true });
-    fs.writeFileSync(STATE_FILE, JSON.stringify(stateOf(vm, nowIso)));
+    fs.writeFileSync(STATE_FILE, JSON.stringify(nextState));
   }
 
-  const ok = accounts.filter((a) => !a.error).length;
+  const ok = accounts.filter((a) => !a.error && !a.stale).length;
   const sync = { ts: nowIso, level: 'INFO', accountId: null, msg: `sync ok · ${ok}/${accounts.length} accounts${ms != null ? ` · ${ms}ms` : ''}` };
-  return { now: nowIso, accounts, events: [sync, ...events.slice().reverse()] };
+  return { now: nowIso, previousId: vm.next?.id || null, opportunityMinutes: nextState.opportunityMinutes, accounts, events: [sync, ...events.slice().reverse()] };
 }

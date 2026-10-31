@@ -59,7 +59,8 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
       if (force || !slop) await refresh();
       return json(res, slop);
     }
-    const file = url.pathname === '/' ? 'index.html' : url.pathname === '/classic' ? 'classic.html' : path.basename(url.pathname);
+    // Old bookmarks use the same decision UI; the archived page has obsolete verdict rules.
+    const file = ['/', '/classic', '/classic.html'].includes(url.pathname) ? 'index.html' : path.basename(url.pathname);
     const full = path.join(PUBLIC, file);
     if (!fs.existsSync(full)) {
       res.writeHead(404);

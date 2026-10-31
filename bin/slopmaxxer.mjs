@@ -6,7 +6,9 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { collect } from '../src/collect.mjs';
 import { discoverInstalls } from '../src/discover.mjs';
-import { VERDICTS, fmtDuration } from '../src/pace.mjs';
+import { buildSlopSnapshot } from '../src/snapshot.mjs';
+import { derive, windowSummary, forecastSummary } from '../public/guidance.js';
+import { shiftedMock } from '../src/mock.mjs';
 import { startServer } from '../src/server.mjs';
 
 const args = process.argv.slice(2);
@@ -18,10 +20,11 @@ Commands:
   accounts    List discovered Claude Code and Codex logins
 
 Options:
-  --demo            Show sample accounts (serve)
+  --demo            Show sample accounts (serve or status)
   --no-open         Start without opening a browser (serve)
   --port <number>   Require port 1–65535 (default: 4747 or a free port)
   --json            Print JSON (status)
+  --provider <name>  Filter status routing: any, claude, codex
   -h, --help        Show help
   -v, --version     Show version
 
@@ -46,10 +49,14 @@ function fail(message) {
 }
 let [cmd = 'serve', ...rest] = args;
 if (cmd.startsWith('-')) [cmd, rest] = ['serve', args];
-const allowed = { serve: ['--demo', '--no-open', '--port'], status: ['--json'], accounts: [] };
+const allowed = { serve: ['--demo', '--no-open', '--port'], status: ['--json', '--demo', '--provider'], accounts: [] };
 if (!Object.hasOwn(allowed, cmd)) fail(`Unknown command: ${cmd}`);
 for (let i = 0; i < rest.length; i++) {
   if (!allowed[cmd].includes(rest[i])) fail(`Unknown option for ${cmd}: ${rest[i]}`);
+  if (rest[i] === '--provider') {
+    if (!rest[++i] || rest[i].startsWith('-')) fail('Missing provider value.');
+    continue;
+  }
   if (rest[i] === '--port' && (!rest[++i] || !/^\d+$/.test(rest[i]))) fail('--port requires a number from 1 to 65535.');
 }
 const flag = (name) => rest.includes(`--${name}`);
@@ -64,35 +71,30 @@ const c = process.stdout.isTTY && !process.env.NO_COLOR
   ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, yel: (s) => `\x1b[33m${s}\x1b[0m`, grn: (s) => `\x1b[32m${s}\x1b[0m`, mag: (s) => `\x1b[35m${s}\x1b[0m` }
   : Object.fromEntries(['dim', 'bold', 'red', 'yel', 'grn', 'mag'].map((k) => [k, (s) => s]));
 
-function bar(used, expected, width = 24) {
-  const u = Math.round((Math.min(used, 100) / 100) * width);
-  const e = Math.min(width - 1, Math.round((Math.min(expected, 100) / 100) * width));
-  let s = '';
-  for (let i = 0; i < width; i++) s += i === e ? '│' : i < u ? '█' : '░';
-  const col = used >= 90 ? c.red : used < expected - 12 ? c.mag : c.grn;
-  return col(s);
-}
-
 async function status() {
-  const snap = await collect();
-  if (flag('json')) return console.log(JSON.stringify(snap, null, 2));
-  console.log(c.bold('\n  🍝 SlopMaxxer') + c.dim(`  ·  ${new Date(snap.generatedAt).toLocaleTimeString()}\n`));
-  for (const a of snap.accounts) {
-    const v = VERDICTS[a.verdict];
-    const who = a.nickname || a.email || a.dir;
-    const next = snap.nextUp === a.id ? c.yel('  ← next task goes here') : '';
-    console.log(`  ${a.provider === 'claude' ? '🟠' : '⚫'} ${c.bold(who)} ${c.dim(`${a.provider} · ${a.plan || '?'}${a.org ? ' · ' + a.org : ''}`)}${next}`);
-    console.log(`     ${v.emoji} ${c.bold(v.title)}  ${a.headline}`);
+  const provider = opt('provider', 'any');
+  if (!['any', 'claude', 'codex'].includes(provider)) fail('Unsupported provider filter.');
+  const snap = flag('demo') ? shiftedMock() : buildSlopSnapshot(await collect(), { persist: false });
+  const vm = derive(snap, { provider });
+  if (flag('json')) return console.log(JSON.stringify({ ...snap, guidance: vm, nextUp: vm.next?.id || null }, null, 2));
+  console.log(c.bold(`\nSlopMaxxer · ${vm.verdict.arrow} ${vm.verdict.word}`));
+  console.log(vm.verdict.why);
+  for (const a of vm.sorted) {
+    console.log(c.bold(`\n${a.slug} ${a.label} · ${a.action}${vm.next?.id === a.id ? ' ← next task' : ''}`));
+    console.log(`  ${a.reason}`);
     for (const w of a.windows) {
-      const pct = `${Math.round(w.usedPercent)}%`.padStart(4);
-      const left = w.idle ? c.dim('not started') : `resets in ${fmtDuration(w.hoursLeft)}`;
-      console.log(`     ${w.label.padEnd(16)} ${bar(w.usedPercent, w.expectedPercent)} ${pct}  ${c.dim(left)}`);
+      console.log(`  ${w.label}: ${windowSummary(w)}`);
+      console.log(c.dim(`    ${forecastSummary(w)}`));
+      if (w.outlook?.confidence === 'limited' && w.fresh && !w.expired) console.log(c.dim(`    Weekly demand estimate: ${w.outlook.low}–${w.outlook.high}% at reset, based on ${w.outlook.days} well-observed days. Limited confidence.`));
     }
-    if (a.resetCredits) console.log(`     🎟️  ${a.resetCredits} banked reset(s) available`);
-    if (a.note) console.log(c.dim(`     ${a.note}`));
-    console.log();
+    if (a.observedAt) console.log(c.dim(`  Last reading: ${a.observedAt}`));
+    for (const r of (a.completedWindows || []).slice(0, 3)) console.log(`  Completed ${r.kind}: at least ${r.usedAtLeast}% used; at most ${r.unusedAtMost}% unused (last reading ${r.gapMinutes}m before reset).`);
+    if (a.resetCredits != null) console.log(`  Reset credits: ${a.resetCredits}. Not assumed redeemed.`);
+    if (a.extraUsage) console.log('  Extra paid usage is separate from included allowance.');
+    if (a.note) console.log(c.dim(`  ${a.note}`));
   }
-  if (!snap.accounts.length) console.log('  No Claude Code or Codex logins found. Log in with `claude` or `codex` first.\n');
+  if (vm.opportunityMinutes) console.log(`\nObserved ${Math.round(vm.opportunityMinutes)}m with an account limited while another reported capacity; not measured work time.`);
+  if (!vm.accounts.length) console.log('\nLog in with Claude Code or Codex first.');
 }
 
 function openBrowser(url) {

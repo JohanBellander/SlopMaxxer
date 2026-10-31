@@ -52,7 +52,7 @@ function toWindow(w) {
   return {
     kind: windowSeconds >= 6 * 86400 ? 'weekly' : 'session',
     label: labelFor(windowSeconds),
-    usedPercent: Number(w.used_percent ?? 0),
+    usedPercent: typeof w.used_percent === 'number' && Number.isFinite(w.used_percent) ? w.used_percent : null,
     windowSeconds,
     resetsAt,
     idle: resetsAt == null || resetsAt < Date.now(),
@@ -138,6 +138,7 @@ export async function fetchCodex({ dir }) {
       .sort((a, b) => a.windowSeconds - b.windowSeconds),
     resetCredits: null,
     stale: true,
+    observedAt: logged.at,
     note: `Live check failed (${liveError}); showing last logged numbers from ${new Date(logged.at).toLocaleString()}`,
   };
 }

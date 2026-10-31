@@ -40,20 +40,7 @@ export const MOCK = {
       dailyPct: [3, 6, 4, 8, 5, 4, 0]
     }
   ],
-  events: [
-    { ts: '2026-10-31T14:20:03+01:00', level: 'INFO', accountId: null, msg: 'sync ok · 6 accounts · 412ms' },
-    { ts: '2026-10-31T14:18:51+01:00', level: '429', accountId: 'codex-work', msg: 'codex/plus work hit the wall. cooked till 14:58' },
-    { ts: '2026-10-31T14:12:07+01:00', level: 'WARN', accountId: 'claude-work', msg: 'claude/max-5x work burning hot · 5h cap in ~47m' },
-    { ts: '2026-10-31T14:05:44+01:00', level: 'TIP', accountId: 'codex-personal', msg: 'codex/pro personal is starving. feed the slop' },
-    { ts: '2026-10-31T13:58:10+01:00', level: 'INFO', accountId: 'claude-personal', msg: 'claude/max-20x personal back on pace' },
-    { ts: '2026-10-31T13:40:22+01:00', level: 'RANK', accountId: null, msg: 'ranked up: vibe coder → pace keeper' },
-    { ts: '2026-10-31T13:31:09+01:00', level: 'WARN', accountId: 'claude-side', msg: 'claude/pro side 13pt behind the pace line' },
-    { ts: '2026-10-31T13:02:55+01:00', level: 'INFO', accountId: 'claude-side', msg: '5h window opened · claude/pro side' },
-    { ts: '2026-10-31T12:47:30+01:00', level: 'INFO', accountId: 'codex-side', msg: 'codex/plus side asleep · 0 prompts in 6h' },
-    { ts: '2026-10-31T11:15:12+01:00', level: 'TIP', accountId: null, msg: '3 resets will land half-eaten this week' },
-    { ts: '2026-10-31T09:12:44+01:00', level: 'WARN', accountId: 'claude-work', msg: 'claude/max-5x work 5h window at 80%' },
-    { ts: '2026-10-31T08:31:02+01:00', level: 'INFO', accountId: null, msg: 'gm. feed the slop today' }
-  ]
+  events: []
 };
 
 /** The mock, with every timestamp moved so the snapshot's `now` is the real now. */
@@ -64,7 +51,7 @@ export function shiftedMock(now = Date.now()) {
     now: new Date(now).toISOString(),
     demo: true,
     accounts: MOCK.accounts.map((a) => ({
-      ...a,
+      ...a, observedAt: new Date(now).toISOString(),
       fiveHour: { ...a.fiveHour, resetsAt: mv(a.fiveHour.resetsAt) },
       weekly: { ...a.weekly, active: true, resetsAt: mv(a.weekly.resetsAt) },
     })),

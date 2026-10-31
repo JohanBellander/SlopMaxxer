@@ -9,7 +9,7 @@
 ### every token unused is a token wasted
 
 **One local dashboard for every Claude Code and Codex account on your machine.**<br>
-It tells you whether to speed up or slow down, and where your next task should go.
+It shows where you can work next, which capacity expires soon, and what might interrupt you.
 
 </div>
 
@@ -64,10 +64,10 @@ On Monday you're rate-limited on one, and on Sunday another resets with 70% unus
 npx slopmaxxer@latest
 ```
 
-SlopMaxxer finds every login on your machine, reads the limits, and turns them into one verdict:
+SlopMaxxer finds your logins, reads their limits, and recommends a suitable account with capacity:
 
-> ### ▲ Speed up. You're leaving 105 pts on the table this week.
-> **Next task →** `codex/pro personal` &nbsp; `↵ feed the slop`
+> ### ▲ Speed up.
+> 60% of its 5-hour allowance remains, resetting in 45 minutes. Use it for suitable work before reset.
 
 No setup. No accounts to add. No API keys. It just reads what's already there.
 
@@ -77,17 +77,16 @@ No setup. No accounts to add. No API keys. It just reads what's already there.
 
 | | |
 |---|---|
-| 🎯 **The verdict** | *Speed up*, *Hold* or *Slow down*, based on where every account will land at reset |
-| 🧭 **Next task →** | The account your next prompt should go to: the hungriest one that isn't about to cap. One click copies the command that starts it |
-| 🚫 **Avoid list** | Accounts that are cooked or about to cap, with when they come back |
-| 📊 **Glyph meters** | 5-hour and weekly windows drawn in box characters. `╋` is where you *should* be, and the dim part is where you'll land |
-| 🔥 **Burn vs. need** | Your current %/h against the %/h it takes to max out exactly at reset |
-| 🎟️ **Banked resets** | Codex reset credits, counted |
-| 📅 **Refill schedule** | Every 5h `○` and weekly `◆` refill for every account on one 7-day strip |
-| 📈 **7-day history** | Braille sparkline per account, **backfilled from disk** on day one |
-| 📜 **`tail -f events.log`** | Status flips, 429s, refills, rank-ups. A changelog for your slop |
-| 🏆 **Ranks** | token graveyard → prompt tourist → vibe coder → pace keeper → **slop maxxer** → rate-limit speedrunner |
-| 🎨 **6 themes** | phosphor (default), tokyo, gruvbox, paper, synth, graphite |
+| **Use next** | One actionable recommendation, with a provider filter and the reason |
+| **Capacity now** | Remaining percentage and reset time for each applicable limit, including model restrictions |
+| **Use before reset** | Meaningful capacity nearing reset gets priority over a speculative weekly forecast |
+| **Interruption estimates** | Conditional ranges from sufficiently recent, consistent readings; never a task-size guarantee |
+| **Completed windows** | At least how much was used and at most how much remained, with the last-reading gap disclosed |
+| **Weekly outlook** | A limited-confidence demand range only after enough well-observed days; offline gaps are not inactivity |
+| **History and events** | Daily usage, observed availability changes, and reset confirmations |
+| **Six themes** | phosphor, tokyo, gruvbox, paper, synth, graphite |
+
+The screenshots below show the earlier score-based design; current guidance uses availability and reset opportunities.
 
 <div align="center">
 <img src="docs/theme-synth.png" alt="synth theme" width="49%"> <img src="docs/theme-tokyo.png" alt="tokyo theme" width="49%">
@@ -103,7 +102,9 @@ No setup. No accounts to add. No API keys. It just reads what's already there.
 | `npx slopmaxxer@latest` | open the dashboard |
 | `npx slopmaxxer@latest --demo` | try sample accounts without logging in |
 | `npx slopmaxxer@latest status` | terminal summary |
-| `npx slopmaxxer@latest status --json` | JSON for scripts |
+| `npx slopmaxxer@latest status --json` | snapshot plus the same guidance used by the dashboard |
+| `npx slopmaxxer@latest status --provider claude` | recommendations for a specific provider |
+| `npx slopmaxxer@latest status --demo` | terminal demo without reading credentials |
 | `npx slopmaxxer@latest accounts` | list discovered logins |
 | `npx slopmaxxer@latest --help` | show help |
 | `npx slopmaxxer@latest --version` | print the version |
@@ -187,22 +188,40 @@ If a live read fails (a 429, an expired token), the account keeps its last readi
 
 ---
 
-## 🧠 the verdicts
+## how recommendations work
 
-Each window has a **pace line**: where you'd be if you spread usage evenly. Burn rate × time left = where you'll land.
+The dashboard and terminal share one decision engine. A recent burst does not mean you must slow down:
+using up a window before reset can be a good outcome.
 
-| chip | status | when |
-|---|---|---|
-| `▲▲ speed up` | use it or lose it | weekly lands **< 60%** at reset |
-| `▲ speed up` | pick it up | weekly lands **< 90%** |
-| `◌ wake it` | window asleep | the 5h clock hasn't started. One prompt starts it |
-| `● hold` | on pace | right on the line. Perfectly balanced |
-| `▼ slow down` | slow down | you'll cap the 5h or weekly limit before it resets |
-| `✕ cooked` | cooked | at the cap. Go touch grass |
+| Message | Meaning |
+|---|---|
+| **Available** | Fresh readings show capacity on the applicable limits |
+| **Use before reset** | Meaningful allowance is left near a reset; use it for suitable work |
+| **Ready to start** | A window has not opened yet and other limits allow use |
+| **Limited headroom** | 10% or less remains on an applicable limit; small tasks may still fit |
+| **Model restriction** | General allowance remains, but a model-specific limit needs attention; inspect the reported model limits |
+| **Allowance used up** | A limit is exhausted; recovery must satisfy every blocking window |
+| **Checking reset** | A reset time passed; fresh confirmation is required |
+| **Refresh needed / no reliable data** | Old, missing, or failed readings cannot justify a recommendation |
 
-**Score** = average projected weekly % across accounts (100 = on pace).
-Under 95 you get *Speed up*, over 105 you get *Slow down*, and in between you get *Hold*.
-All thresholds live in `CFG` at the top of [`public/slop.js`](public/slop.js).
+The provider filter constrains routing. A known model restriction is surfaced
+rather than silently recommending an unverified alternative. Percentages from different plans are never
+added together or presented as interchangeable token counts.
+
+Forecasts use at least 30 minutes and four observations from the same window, without gaps over ten minutes.
+Only supported cap estimates within two hours are shown, explicitly conditional on the recent pace continuing.
+Weekly demand estimates need at least five completed UTC days with 18 hours of observed coverage each,
+within the last fourteen days. They are contextual ranges, never instructions to stop or guarantees of task cost.
+Until enough evidence exists, the app says it is learning your usage.
+
+Completed reset statistics are **bounds**, not exact measurements: the last pre-reset reading establishes
+at least the amount used. Its time gap is displayed. The availability interval counter records only short,
+observed periods where one account was limited and another reported capacity. It is not lost work time,
+and it does not establish that the other account suited your task. Credits and paid extra usage stay separate.
+
+**Direction indicators:** ▲ **Speed up** means at least 20% allowance remains and its remaining percentage exceeds the window’s remaining time by at least 20 percentage points; ▲▲ **Speed up** means usable allowance is nearing reset; ▶ **Keep cooking** means capacity remains; ▼ **Slow down** means the recommended account has little headroom; ▼ **Cooldown** means all matching accounts are capped. These messages follow the recommended account, never an average across subscriptions.
+
+See [the decision model](public/guidance.js) and [scenario tests](test/guidance.test.mjs).
 
 ## ⚙️ config (optional)
 
@@ -219,7 +238,7 @@ All thresholds live in `CFG` at the top of [`public/slop.js`](public/slop.js).
 ```
 
 Nicknames become the row labels (`claude/team-5x work`). State lives in `~/.slopmaxxer/`:
-`history.jsonl` (8 days of readings), `events.jsonl` (the log), `state.json`.
+`history.jsonl` (35 days of percentage readings), `events.jsonl` (the log), `state.json`.
 
 ---
 
@@ -238,8 +257,10 @@ src/collect.mjs         polls, dedupes, stores readings
 src/backfill.mjs        history from session logs and transcripts
 src/snapshot.mjs        → the SlopSnapshot the UI eats, plus the event log
 src/server.mjs          127.0.0.1 server: /api/slop, /api/snapshot
-public/slop.js          the brain: statuses, verdict, routing, glyph meters (shared by UI and tests)
-public/index.html       the Phosphor dashboard (the old one lives at /classic)
+public/guidance.js      shared availability, messages and routing
+public/slop.js          glyph meters and display helpers
+src/history.mjs        confidence, demand outlook and completed windows
+public/index.html       the dashboard (also served at /classic)
 design/                 the Claude Design handoff this UI was built from
 ```
 
