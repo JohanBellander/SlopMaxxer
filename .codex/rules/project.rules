@@ -1,0 +1,5 @@
+prefix_rule(pattern=["npm", "test"], decision="allow", justification="Run tests")
+prefix_rule(pattern=["node", "--test"], decision="allow", justification="Run tests")
+prefix_rule(pattern=["node", "--check"], decision="allow", justification="Check syntax")
+prefix_rule(pattern=["node", ".agents/sync-skills.mjs"], decision="allow", justification="Synchronize shared skills")
+prefix_rule(pattern=["git", "diff"], decision="allow", justification="Review changes")

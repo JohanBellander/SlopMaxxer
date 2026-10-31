@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(node --test:*)",
+      "Bash(node --check:*)",
+      "Bash(node .agents/sync-skills.mjs:*)",
+      "Bash(git diff:*)"
+    ]
+  }
+}
