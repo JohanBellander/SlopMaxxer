@@ -4,7 +4,7 @@
  ❯ slopmaxxer
 ```
 
-# 🍝 SlopMaxxer
+# SlopMaxxer
 
 ### every token unused is a token wasted
 
@@ -74,8 +74,8 @@ No setup. No accounts to add. No API keys. It just reads what's already there.
 Needs **Node 20+**. That's it. No `npm install`, there's nothing to install.
 
 ```sh
-git clone https://github.com/JohanBellander/TokenMaxxer.git
-cd TokenMaxxer
+git clone https://github.com/JohanBellander/SlopMaxxer.git
+cd SlopMaxxer
 node bin/slopmaxxer.mjs            # dashboard → http://127.0.0.1:4747 (opens your browser)
 ```
 
