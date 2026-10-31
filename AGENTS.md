@@ -1,9 +1,9 @@
 # SlopMaxxer
 
 Local web dashboard (plus CLI) that finds every Claude Code and Codex login on the machine, reads each
-account's 5-hour and weekly limits, and turns them into one verdict (speed up / hold / slow down) and a
+account's applicable limits, and explains remaining capacity, upcoming resets, and a
 "next task →" account to route work to. Runs on 127.0.0.1 only, read-only on credentials. See `README.md`
-for the user-facing feature list and verdict thresholds.
+for the user-facing feature list and guidance rules.
 
 ## Stack
 - Node ≥ 20, plain ES modules (`"type": "module"`), **zero dependencies** — no `npm install`, no build step,
@@ -20,10 +20,12 @@ src/collect.mjs         polls (~120s), dedupes logins, stores readings
 src/backfill.mjs        7-day history from Codex session logs (exact) and Claude transcripts (estimated)
 src/snapshot.mjs        builds the SlopSnapshot the UI eats + the event log diff
 src/server.mjs          127.0.0.1 server: /api/slop (index.html), /api/snapshot (classic.html + CLI), static files
-src/pace.mjs            CLI-side verdicts and formatting
+src/pace.mjs            raw-provider compatibility adapter (uses shared guidance)
+src/history.mjs         observed rates, weekly outlook coverage, completed-window bounds
 src/mock.mjs, demo.mjs  reference mock (6 accounts, all states) and --demo mode
-public/slop.js          the brain: statuses, verdict, routing, glyph meters, CFG thresholds — shared by UI AND tests
-public/index.html       Phosphor dashboard (current)   public/classic.html  old dashboard at /classic
+public/guidance.js      pure decisions and messages shared by dashboard, CLI and events
+public/slop.js          glyph meters, timeline and sparkline display helpers
+public/index.html       dashboard; /classic also serves it to avoid obsolete verdict rules
 public/tokens.css       design tokens; 6 themes via [data-theme]
 design/                 Claude Design handoff: HANDOFF.md, types.ts (data model), reference/ prototype
 docs/                   README screenshots
@@ -43,12 +45,14 @@ docs/                   README screenshots
 Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CONFIG_DIR`, `CODEX_HOME`.
 
 ## Conventions
-- `public/slop.js` is pure and imported by both the browser and `test/`; keep it free of Node and DOM APIs.
-  Behaviour thresholds belong in its `CFG` block, not scattered in the UI.
+- `public/guidance.js` and `public/slop.js` are pure; keep them free of Node and DOM APIs.
+  Decision thresholds belong in `guidance.js` CFG, not in a second CLI or UI implementation.
 - `design/types.ts` is the contract for `/api/slop`; `design/reference/` is the source of truth for layout and copy.
   If you change the snapshot shape, update `types.ts`, `src/snapshot.mjs`, the UI and tests together.
-- The mock in `src/mock.mjs` reproduces the handoff numbers (`test/slop.test.mjs` asserts score 85, "pace keeper",
-  etc.). Changing the mock or the logic means updating those expectations deliberately, not to make tests pass.
+- The design reference preserves the original prototype. Its average score/ranks are retired.
+  `test/guidance.test.mjs` covers availability, freshness, scope, forecasts and multi-account routing.
+  Never make short-term bursts alone disqualify an account with remaining capacity.
+  Never report exact reset utilization when only a pre-reset lower-bound reading exists.
 - Voice in UI copy: terse, terminal-flavoured, a little meme-y (see design/HANDOFF.md).
 - Small commits, conventional-ish subjects; README screenshots live in `docs/`.
 

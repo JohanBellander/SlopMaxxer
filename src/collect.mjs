@@ -7,11 +7,12 @@ import { discoverInstalls, loadConfig, SLOP_HOME } from './discover.mjs';
 import { fetchClaude } from './providers/claude.mjs';
 import { fetchCodex } from './providers/codex.mjs';
 import { analyzeAccount, pickNext } from './pace.mjs';
+import { recentRate, completedWindows, weeklyOutlook } from './history.mjs';
 import { dailyHistory } from './backfill.mjs';
 
 const FETCHERS = { claude: fetchClaude, codex: fetchCodex };
 const HISTORY_FILE = path.join(SLOP_HOME, 'history.jsonl');
-const HISTORY_KEEP_MS = 8 * 86400_000;
+const HISTORY_KEEP_MS = 35 * 86400_000;
 
 let history = null;
 
@@ -33,19 +34,6 @@ function saveSamples(samples) {
   history = h.filter((s) => s.t >= cutoff);
   fs.mkdirSync(SLOP_HOME, { recursive: true });
   fs.writeFileSync(HISTORY_FILE, history.map((s) => JSON.stringify(s)).join('\n') + '\n');
-}
-
-/** %/hour over the last ~90 minutes within the same window instance (same reset time). */
-function observedRate(id, w, now) {
-  const pts = loadHistory().filter(
-    (s) => s.id === id && s.kind === w.kind && s.resetsAt === w.resetsAt && now - s.t < 90 * 60_000,
-  );
-  if (pts.length < 2) return null;
-  const first = pts[0];
-  const last = pts[pts.length - 1];
-  const spanH = (last.t - first.t) / 3_600_000;
-  if (spanH < 0.25) return null;
-  return Math.max(0, (last.used - first.used) / spanH);
 }
 
 /** Our own weekly readings for an account, for the 7-day history. */
@@ -70,17 +58,19 @@ function fromLastSamples(a, now) {
   const latest = {};
   for (const s of loadHistory()) if (s.id === a.id && (!latest[s.kind] || s.t > latest[s.kind].t)) latest[s.kind] = s;
   const kinds = Object.values(latest).filter((s) => now - s.t < 12 * 3_600_000);
-  if (!kinds.some((s) => s.kind === 'weekly')) return null;
+  if (!kinds.length) return null;
   const windows = kinds.map((s) => ({
     kind: s.kind,
-    label: s.kind === 'session' ? '5-hour' : 'Weekly',
+    label: s.kind === 'session' ? '5-hour' : s.kind === 'weekly' ? 'Weekly' : s.kind.replaceAll('_', ' '),
     usedPercent: s.used,
-    windowSeconds: s.kind === 'session' ? 5 * 3600 : 7 * 86400,
-    resetsAt: s.resetsAt && s.resetsAt > now ? s.resetsAt : null,
-    idle: !s.resetsAt || s.resetsAt <= now,
+    windowSeconds: s.windowSeconds || (s.kind === 'session' ? 5 * 3600 : 7 * 86400),
+    resetsAt: s.resetsAt,
+    idle: !s.resetsAt && s.used === 0,
+    observedAt: s.t,
+    scope: s.scope || (s.kind === 'weekly_opus' ? 'opus' : s.kind === 'weekly_sonnet' ? 'sonnet' : 'all'),
   }));
   const at = new Date(Math.max(...kinds.map((s) => s.t))).toTimeString().slice(0, 5);
-  return { ...a, windows, error: undefined, stale: true, note: `${a.error}; showing the last reading from ${at}` };
+  return { ...a, windows, observedAt: Math.max(...kinds.map(s => s.t)), error: undefined, stale: true, note: `${a.error}; showing the last reading from ${at}` };
 }
 
 function safeDaily(a, now) {
@@ -111,15 +101,22 @@ export async function collect() {
   for (const a of raw) {
     const id = accountId(a);
     const prev = byId.get(id);
-    if (!prev || (!prev.windows && a.windows)) byId.set(id, { ...a, id, dirs: [...(prev?.dirs || []), a.dir] });
+    if (!prev || ((!prev.windows?.length || prev.stale || prev.error) && a.windows?.length && !a.stale && !a.error)) byId.set(id, { ...a, id, dirs: [...(prev?.dirs || []), a.dir] });
     else prev.dirs.push(a.dir);
   }
 
   const nicknames = config.nicknames || {};
   const accounts = [...byId.values()].map((a) => (a.error ? fromLastSamples(a, now) || a : a)).map((a) => {
-    const rates = {};
-    for (const w of a.windows || []) rates[w.kind] = observedRate(a.id, w, now);
-    const analyzed = analyzeAccount(a, now, rates);
+    a.observedAt ??= a.stale || a.error ? null : now;
+    a.windows = (a.windows || []).map(w => ({ ...w, observedAt: w.observedAt ?? a.observedAt }));
+    const freshSamples = a.stale || a.error ? [] : a.windows.map(w => ({ t: now, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds }));
+    const evidence = [...loadHistory(), ...freshSamples];
+    a.completedWindows = completedWindows(evidence, a.id, now);
+    for (const w of a.windows) {
+      w.rate = a.stale || a.error ? { confidence: 'learning' } : recentRate(evidence, a.id, w, now);
+      if (w.kind === 'weekly') w.outlook = weeklyOutlook(evidence, a.id, w, now);
+    }
+    const analyzed = analyzeAccount(a, now);
     const { accountKey, ...publicFields } = analyzed;
     return {
       ...publicFields,
@@ -131,12 +128,12 @@ export async function collect() {
 
   const samples = [];
   for (const a of accounts) {
-    if (a.stale) continue;
-    for (const w of a.windows) samples.push({ t: now, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt });
+    if (a.stale || a.error) continue;
+    for (const w of a.windows) samples.push({ t: now, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds });
   }
   if (samples.length) saveSamples(samples);
 
-  const next = pickNext(accounts);
+  const next = pickNext(accounts, now);
   return {
     generatedAt: now,
     accounts: accounts.sort((a, b) => a.provider.localeCompare(b.provider) || (a.email || '').localeCompare(b.email || '')),

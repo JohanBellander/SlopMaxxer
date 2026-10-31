@@ -1,59 +1,84 @@
-// SlopMaxxer data model. The UI only ever consumes a SlopSnapshot; provider adapters produce it.
-
+// Runtime snapshot contract for /api/slop. Decisions in public/guidance.js are shared by CLI/UI.
 export type Provider = 'claude' | 'codex';
-
-/** One usage-limit window as reported by the provider. Percentages are of that window's cap (0–100+). */
+export type Status = 'available' | 'expiring' | 'ready' | 'limited' | 'restricted' | 'blocked' | 'checking' | 'stale' | 'unknown';
+export interface RateEvidence {
+  confidence: 'learning' | 'observed';
+  samples?: number;
+  spanMinutes?: number;
+  low?: number | null;
+  high?: number | null;
+  perHour?: number;
+}
 export interface LimitWindow {
-  /** false when no window is open yet (e.g. the 5h clock hasn't started). */
+  kind: string;
+  label: string;
+  scope?: 'all' | 'opus' | 'sonnet' | string;
   active: boolean;
-  usedPct: number;
-  /** ISO-8601 with offset. null when inactive. */
+  usedPct: number | null;
   resetsAt: string | null;
-  /** Recent burn rate in % of this window's cap per hour (suggested: average over the last 2h). */
-  burnPctPerHour: number;
+  observedAt: string | null;
+  durationMin?: number | null;
+  rate?: RateEvidence;
+  outlook?: { confidence: 'learning' | 'limited'; days: number; low?: number; high?: number } | null;
 }
-
-export interface Account {
-  id: string;                 // stable, e.g. 'claude-personal'
-  provider: Provider;
-  plan: string;               // display, e.g. 'Max 20x'
-  planSlug: string;           // used in the slug 'claude/max-20x'
-  label: string;              // user's own tag: 'personal' | 'work' | 'side' | …
-  email: string;
-  fiveHour: LimitWindow;
-  weekly: LimitWindow;
-  /** Usage per day for the last 7 days, oldest first, in % of the weekly cap. */
-  dailyPct: number[];
-}
-
-export type EventLevel = 'INFO' | 'WARN' | 'TIP' | '429' | 'RANK' | 'CRON';
-
-export interface SlopEvent {
-  ts: string;                 // ISO-8601
-  level: EventLevel;
-  accountId: string | null;   // null = global event
-  msg: string;
-}
-
-export interface SlopSnapshot {
-  now: string;                // ISO-8601, the time the snapshot was taken
-  accounts: Account[];
-  events: SlopEvent[];        // newest first
-}
-
-// ---- derived (see reference/logic.js → derive) ----
-
-export type Status = 'useit' | 'pickup' | 'asleep' | 'onpace' | 'slowdown' | 'cooked';
-
-export interface DerivedWindow {
-  active: boolean;
-  usedPct: number;
-  pacePct: number;            // "where you should be by now" = elapsed / duration × 100
-  projectedPct: number;       // usedPct + burn × hoursRemaining
-  paceDelta: number;          // usedPct − pacePct (negative = behind)
-  burnPctPerHour: number;
-  needPctPerHour: number;     // (100 − usedPct) / hoursRemaining
-  remainingMin: number;
+export interface CompletedWindow {
+  kind: string;
   resetsAt: string;
-  capInMin: number | null;    // minutes until 100% at current burn; null if it won't cap
+  observedAt: string;
+  usedAtLeast: number;
+  unusedAtMost: number;
+  gapMinutes: number;
+  nearReset: boolean;
+}
+export interface Account {
+  id: string;
+  provider: Provider;
+  plan: string;
+  planSlug: string;
+  label: string;
+  email: string;
+  observedAt: string | null;
+  windows: LimitWindow[];
+  // Compatibility aliases; missing windows are not automatically assumed to exist.
+  fiveHour: LimitWindow | null;
+  weekly: LimitWindow | null;
+  dailyPct: number[];
+  dailyEstimated?: boolean[] | null;
+  historySource?: string | null;
+  completedWindows: CompletedWindow[];
+  stale?: boolean;
+  error?: string | null;
+  note?: string | null;
+  limitReached?: boolean;
+  resetCredits?: number | null;
+  extraUsage?: object | null;
+  launch?: string;
+  dirs?: string[];
+}
+export interface DerivedWindow extends LimitWindow {
+  known: boolean;
+  none?: boolean;
+  idle?: boolean;
+  expired?: boolean;
+  fresh?: boolean;
+  remainingPct: number | null;
+  remainingMin?: number | null;
+  ageMinutes?: number | null;
+  capRange?: [number, number] | null;
+  forecast?: 'learning' | 'observed';
+}
+export type EventLevel = 'INFO' | 'WARN' | 'TIP' | 'CRON' | '429' | 'RANK';
+export interface SlopEvent { ts: string; level: EventLevel; accountId: string | null; msg: string; }
+export interface SlopSnapshot {
+  now: string;
+  accounts: Account[];
+  events: SlopEvent[];
+  previousId?: string | null;
+  opportunityMinutes?: number;
+  demo?: boolean;
+}
+export interface GuidanceOptions {
+  provider?: 'any' | Provider;
+  model?: 'any' | 'opus' | 'sonnet';
+  previousId?: string | null;
 }

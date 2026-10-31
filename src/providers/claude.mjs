@@ -74,7 +74,7 @@ function toWindow(kind, label, w, windowSeconds) {
   return {
     kind,
     label,
-    usedPercent: Number(w.utilization ?? 0),
+    usedPercent: typeof w.utilization === 'number' && Number.isFinite(w.utilization) ? w.utilization : null,
     windowSeconds,
     resetsAt,
     // A rolling 5h window that hasn't been started has no reset yet.

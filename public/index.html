@@ -31,6 +31,9 @@
   /* verdict */
   .verdict { display: flex; flex-direction: column; gap: 14px; }
   .verdict h1 { margin: 0; font: 700 clamp(36px, 5vw, 60px)/1.05 var(--font-sans); letter-spacing: -0.03em; }
+  .urgent .direction { display: inline-block; animation: urge 1.5s ease-in-out infinite; }
+  @keyframes urge { 50% { transform: translateY(-5px); opacity: .65; } }
+  @media (prefers-reduced-motion: reduce) { .urgent .direction { animation: none; } }
   .verdict h1 .why { color: var(--muted); font-weight: 500; }
   .nexttask { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
   .nexttask .label { font: 18px var(--font-sans); color: var(--muted); }
@@ -61,7 +64,8 @@
   .row .chev { flex: 0 0 2ch; text-align: right; color: var(--muted); }
   .details { padding: 4px 16px 16px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 12px; }
   .advice { padding-top: 10px; font: 15px var(--font-sans); }
-  .meter { white-space: pre; overflow: hidden; }
+  .meter { white-space: normal; overflow-wrap: anywhere; margin-block: 14px; }
+  .meter > div:first-child { white-space: pre-wrap; }
   .m16 { display: none; }
   .stats { display: flex; flex-wrap: wrap; gap: 6px; }
   .stats span { padding: 2px 8px; border-radius: var(--radius-chip); background: var(--panel-2); white-space: nowrap; }
@@ -72,8 +76,6 @@
   .days .src { flex-basis: 100%; color: var(--faint); color: color-mix(in srgb, var(--muted) 70%, transparent); }
   .loglines { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
   .logline { display: grid; grid-template-columns: 8ch 5ch minmax(0, 1fr); gap: 1ch; }
-  .launch { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
-  .launch code { padding: 2px 8px; border-radius: var(--radius-chip); background: var(--log-bg); border: 1px solid var(--border); overflow-wrap: anywhere; }
 
   .linkbtn { align-self: flex-start; min-height: 40px; padding: 0 4px; border: 0; background: transparent; color: var(--muted); }
   .sched { border-radius: var(--radius-card); background: var(--panel); border: 1px solid var(--border); padding: 12px 16px; overflow: hidden; }
@@ -106,7 +108,7 @@ import * as S from './slop.js';
 
 const THEMES = ['phosphor', 'tokyo', 'gruvbox', 'paper', 'synth', 'graphite'];
 const STALE_MS = 5 * 60_000;
-const state = { open: {}, sched: false, logAll: false, theme: localStorage.getItem('slop.theme') || 'phosphor', data: null, fetchedAt: 0, err: null, toast: '' };
+const state = { open: {}, sched: false, logAll: false, theme: localStorage.getItem('slop.theme') || 'phosphor', provider: 'any', previousId: null, data: null, fetchedAt: 0, err: null, toast: '' };
 const favicon = document.getElementById('favicon');
 const faviconSvg = new DOMParser().parseFromString(decodeURIComponent(favicon.href.split(',')[1]), 'image/svg+xml');
 let faviconColor = '';
@@ -129,9 +131,6 @@ const fmt = {
   dur: (m) => { m = Math.round(m); if (m >= 1440) { const d = Math.floor(m / 1440); return d + 'd ' + pad(Math.floor((m % 1440) / 60)) + 'h'; } if (m >= 60) return Math.floor(m / 60) + 'h ' + pad(m % 60) + 'm'; return m + 'm'; },
   hm: (iso) => { const d = new Date(iso); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); },
 };
-// "back at" for a cooked account: the 5h reset if that's the wall, otherwise the weekly one.
-const backAt = (a) => (a.five.active && a.five.usedPct >= 100 ? a.five.resetsAt : a.week.resetsAt);
-const backFmt = (iso) => (iso ? (new Date(iso) - Date.now() < 864e5 ? fmt.time(iso) : fmt.dayTime(iso)) : '?');
 const pvar = (a) => `var(--${a.provider})`;
 const tone = (t) => `var(--${t})`;
 const tint = (t, pct) => `color-mix(in srgb, ${t} ${pct}%, transparent)`;
@@ -147,14 +146,12 @@ const runs = (rs, a) => rs.map((r) => {
 const logLine = (e) => { const c = LEVEL[e.level] || LEVEL.INFO; return `<div class="logline"><span class="muted">${fmt.hm(e.ts)}</span><span class="${c[0]}" style="font-weight:700">${esc(e.level)}</span><span class="${c[1]}">${esc(e.msg)}</span></div>`; };
 
 function meterBlock(label, w, a) {
-  const bar = (n) => runs(S.meterGlyphs(w, n), a);
-  const both = (tail) => `<div class="m30">${label.padEnd(8).replace(/^(\S+)/, '<span class="muted">$1</span>')}${bar(30)}${tail}</div><div class="m16">${label.padEnd(8).replace(/^(\S+)/, '<span class="muted">$1</span>')}${bar(16)}${tail}</div>`;
-  if (w.none) return `<div class="meter"><div><span class="muted">${label.padEnd(8)}</span><span class="r-faint">${'┄'.repeat(16)}</span> <span class="muted">no 5h limit on this plan</span></div></div>`;
-  if (!w.active) return `<div class="meter">${both(`   <span style="font-weight:700">--</span> <span class="r-now">⟳ idle</span>`)}<div class="muted">        not started · clock starts on first prompt</div></div>`;
-  let note = `→ ${w.projectedPct}% at reset`, cls = 't-txt';
-  if (w.usedPct >= 100) { note = 'capped · back ' + backFmt(w.resetsAt); cls = 't-red'; }
-  else if (w.capInMin != null) { note = 'cap in ' + fmt.dur(w.capInMin); cls = 't-hot'; }
-  return `<div class="meter">${both(` <span style="font-weight:700">${String(w.usedPct + '%').padStart(4)}</span> <span class="r-now">⟳ ${fmt.dur(w.remainingMin)}</span>`)}<div class="muted">        ╋ pace ${w.pacePct}% · <span class="${cls}">${note}</span></div></div>`;
+  const bar = runs(S.meterGlyphs(w, 24), a);
+  const outlook = w.fresh && !w.expired && w.outlook?.confidence === 'limited'
+    ? `<div class="muted">Weekly demand estimate: ${w.outlook.low}–${w.outlook.high}% at reset, based on ${w.outlook.days} well-observed days. Limited confidence; this is not a reason to stop.</div>` : '';
+  return `<div class="meter"><div><span class="muted">${esc(label)}</span> ${bar}</div>
+    <div><b>${esc(S.windowSummary(w))}</b></div>
+    <div class="muted">${esc(S.forecastSummary(w))}</div>${outlook}</div>`;
 }
 
 // Day i of the 7-day history (0 = six days ago, 6 = today), as "sat 25".
@@ -162,28 +159,23 @@ const dayName = (i) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate
 const dayBreakdown = (a) => (a.dailyPct || []).map((v, i) => `${dayName(i)} ${a.dailyEstimated?.[i] ? '~' : ''}${v}%`).join(' · ');
 
 function details(a) {
-  const w = a.week;
-  const known = a.status !== 'unknown';
-  const pace = w.paceDelta;
-  const stats = !known ? '' : `<div class="stats">
-      <span><span class="muted">pace </span><b class="${pace > 5 ? 't-hot' : pace < -5 ? 't-warn' : 't-txt'}">${pace > 0 ? '+' : pace < 0 ? '−' : '±'}${Math.abs(pace)}pt</b></span>
-      <span><span class="muted">burn </span><b>${w.burnPctPerHour.toFixed(2)}%/h</b></span>
-      <span><span class="muted">need </span><b>${w.needPctPerHour.toFixed(2)}%/h</b></span>
-      <span><span class="muted">weekly refill </span><b>${fmt.dayTime(w.resetsAt)}</b></span>
-      ${a.resetCredits != null ? `<span><span class="muted">banked resets </span><b class="${a.resetCredits > 0 ? 't-ok' : ''}">${a.resetCredits}</b></span>` : ''}
-      ${a.stale ? `<span class="t-warn">⚠ ${esc(a.note || "stale data")}</span>` : ''}
-    </div>`;
   const maxDay = Math.max(20, ...(a.dailyPct || [0]));
-  return `
-    <div class="details" id="d-${a.id}">
-      <div class="advice">${esc(S.advice(a, fmt))}</div>
-      ${known ? meterBlock('5-hour', a.five, a) + meterBlock('weekly', w, a) : ''}
-      ${stats}
-      <div class="spark" title="${esc(dayBreakdown(a))}"><span class="muted">last 7d${(a.dailyEstimated || []).some(Boolean) ? ' <span class="t-warn">~est</span>' : ''}</span><div class="b" role="img" aria-label="Share of the weekly cap used per day, last 7 days: ${esc(dayBreakdown(a))}" style="color:${pvar(a)}">${S.brailleSpark(a.dailyPct, 18, maxDay).map((r) => `<div>${r}</div>`).join('')}</div><span class="muted">${esc(a.email)}</span></div>
-      <div class="days muted">${(a.dailyPct || []).map((v, i) => `<span${a.dailyEstimated?.[i] ? ' class="est"' : ''}>${dayName(i)} <b class="t-txt">${a.dailyEstimated?.[i] ? '~' : ''}${Math.round(v)}%</b></span>`).join('')}${a.historySource ? `<span class="src">from ${esc(a.historySource)}</span>` : ''}</div>
-      ${a.launch ? `<div class="launch"><span class="muted">run it</span><code>${esc(a.launch)}</code><button class="btn-ghost" type="button" data-copy="${esc(a.launch)}">copy</button></div>` : ''}
-      ${a.events.length ? `<div class="loglines">${a.events.slice(0, 5).map(logLine).join('')}</div>` : ''}
-    </div>`;
+  const completed = (a.completedWindows || []).slice(0, 4);
+  return `<div class="details" id="d-${a.id}">
+    <div class="advice">${esc(a.reason)}</div>
+    ${a.windows.map(w => meterBlock(w.label, w, a)).join('')}
+    <div class="stats">
+      <span>Last reading: <b>${a.observedAt ? esc(fmt.dayTime(a.observedAt)) : 'unknown'}</b></span>
+      ${a.resetCredits != null ? `<span>Reset credits: <b>${a.resetCredits}</b> · not assumed redeemed</span>` : ''}
+      ${a.extraUsage ? '<span>Paid extra usage is separate from included allowance.</span>' : ''}
+      ${a.note ? `<span class="t-warn">${esc(a.note)}</span>` : ''}
+    </div>
+    <div class="muted">Completed windows · observed usage, not a forecast</div>
+    ${completed.length ? completed.map(r => `<div>${esc(r.kind)} · reset ${esc(fmt.dayTime(r.resetsAt))}: at least <b>${r.usedAtLeast}% used</b>, at most ${r.unusedAtMost}% unused. <span class="muted">Last observed ${r.gapMinutes}m before reset${r.nearReset ? '' : ' · incomplete coverage'}.</span></div>`).join('') : '<div class="muted">No completed windows observed yet. Keep SlopMaxxer running to record resets.</div>'}
+    ${a.week.none ? '' : `<div class="spark" title="${esc(dayBreakdown(a))}"><span class="muted">last 7d${(a.dailyEstimated || []).some(Boolean) ? ' · estimated' : ''}</span><div class="b" role="img" aria-label="Weekly usage per day: ${esc(dayBreakdown(a))}" style="color:${pvar(a)}">${S.brailleSpark(a.dailyPct, 18, maxDay).map(r => `<div>${r}</div>`).join('')}</div></div>`}
+    <div class="muted">${esc(a.email)}</div>
+    ${a.events.length ? `<div class="loglines">${a.events.slice(0, 5).map(logLine).join('')}</div>` : ''}
+  </div>`;
 }
 
 function render() {
@@ -194,22 +186,21 @@ function render() {
     if (state.err) app.innerHTML = `<div class="wrap"><span class="brand"><span class="prompt">❯</span> slop<b>maxxer</b></span><div class="t-red">can't reach the SlopMaxxer server: ${esc(state.err)}</div></div>`;
     return;
   }
-  // Re-derive against the real clock so countdowns and pace lines keep moving between polls.
-  const vm = S.derive({ ...snap, now: new Date().toISOString() });
+  // Re-derive against the real clock so countdowns and freshness keep moving between polls.
+  const vm = S.derive({ ...snap, now: new Date().toISOString() }, { provider: state.provider, previousId: state.previousId });
+  state.previousId = vm.next?.id || null;
   if (!state.init && vm.next) { state.open[vm.next.id] = true; state.init = true; }
 
   const rows = vm.sorted.map((a) => {
     const open = !!state.open[a.id];
-    const w = a.week;
-    const known = a.status !== 'unknown';
-    const predCls = w.projectedPct > 100 ? 't-hot' : w.projectedPct < 90 ? 't-warn' : 't-ok';
+    const w = a.limiting || a.week;
     return `
-      <div class="acct ${a.status === 'cooked' ? 'cooked' : ''}">
+      <div class="acct ${a.status === 'blocked' ? 'cooked' : ''}">
         <button class="row" type="button" data-toggle="${a.id}" aria-expanded="${open}" aria-controls="d-${a.id}">
           <span class="name"><strong style="color:${pvar(a)}">${esc(a.slug)}</strong> <span class="muted">${esc(a.label)}</span></span>
-          <span class="chip" style="color:${tone(a.tone)};background:${tint(tone(a.tone), 15)}">${a.action}</span>
+          <span class="chip" style="color:${tone(a.tone)};background:${tint(tone(a.tone), 15)}">${a.status === 'expiring' ? '▲▲ ' : a.status === 'underused' ? '▲ ' : ['limited', 'blocked'].includes(a.status) ? '▼ ' : ''}${a.action}</span>
           <span class="pre">${runs(S.meterGlyphs(w, 20), a)}</span>
-          <span class="pred">${known ? `→ <b class="${predCls}">${w.projectedPct}%</b> wk` : '—'}</span>
+          <span class="pred" title="${esc(w.label || 'Applicable limits')}">${a.headroom != null ? `<b>${Math.round(a.headroom)}%</b> left` : 'unknown'}</span>
           <span class="chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
         </button>${open ? details(a) : ''}
       </div>`;
@@ -238,17 +229,23 @@ function render() {
         <span class="brand"><span class="prompt">❯</span> slop<b>maxxer</b></span>
         <div class="meta">
           ${snap.demo ? '<span class="demo">demo data</span>' : ''}
-          <span>score <b style="color:var(--accent)">${vm.score}</b> · ${vm.rank.name}</span>
+          <span><b style="color:var(--accent)">${vm.availableCount}</b> matching accounts with capacity</span>
           <button class="sync" type="button" id="syncBtn" title="refresh now"><span class="${stale ? 't-warn' : 't-ok'}">●</span> ${stale ? 'stale · ' : ''}synced ${fmt.time(snap.now)}</button>
           <label>theme <select id="theme">${THEMES.map((t) => `<option ${t === state.theme ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         </div>
       </header>
 
-      <section class="verdict" aria-label="Verdict">
+      <section class="verdict ${vm.next?.status === 'expiring' ? 'urgent' : ''}" aria-label="Verdict">
         <div class="muted"><span class="prompt">❯</span> slop verdict</div>
-        <h1><span style="color:${tone(v.tone)}">${v.arrow} ${v.word}</span> <span class="why">${esc(v.why)}</span></h1>
+        <h1><span style="color:${tone(v.tone)}"><span class="direction" aria-hidden="true">${v.arrow}</span> ${esc(v.word)}</span></h1>
+        <p class="why" style="font-size:18px;line-height:1.5">${esc(v.why)}</p>
         ${vm.next ? `<div class="nexttask"><span class="label">Next task →</span><span class="slug" style="color:${pvar(vm.next)}">${esc(vm.next.slug)}</span><span class="muted">${esc(vm.next.label)}</span><span class="toast" aria-live="polite">${esc(state.toast)}</span></div>` : ''}
-        ${vm.avoid.length ? `<div class="avoid">avoid: ${vm.avoid.map((a) => `<span><span style="color:${pvar(a)}">${esc(a.slug)}</span> ${esc(a.label)} <span style="color:${tone(a.tone)}">(${a.status === 'cooked' ? 'cooked till ' + backFmt(backAt(a)) : a.five.capInMin != null ? 'caps in ' + fmt.dur(a.five.capInMin) : 'running hot'})</span></span>`).join('')}</div>` : ''}
+        <div class="meta" style="margin-top:16px">
+          <label>provider <select id="provider">${['any', 'claude', 'codex'].map(x => `<option value="${x}" ${state.provider === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+          <span class="muted">Choose an account that suits your task. Capacity percentages are separate per plan.</span>
+        </div>
+        ${vm.avoid.length ? `<div class="avoid">needs attention: ${vm.avoid.map(a => `<span>${esc(a.slug)} ${esc(a.label)} · ${esc(a.action)}</span>`).join(' · ')}</div>` : ''}
+        ${vm.opportunityMinutes ? `<div class="muted" style="margin-top:12px">Observed ${Math.round(vm.opportunityMinutes)}m with an account limited while another reported capacity. This is not measured work time; task suitability is unknown.</div>` : ''}
       </section>
 
       <div class="cols">
@@ -306,23 +303,17 @@ function rerender() {
 document.addEventListener('click', async (e) => {
   const t = e.target.closest('[data-toggle]');
   if (t) { state.open[t.dataset.toggle] = !state.open[t.dataset.toggle]; rerender(); return; }
-  const c = e.target.closest('[data-copy]');
-  if (c) {
-    try { await navigator.clipboard.writeText(c.dataset.copy); state.toast = 'copied: ' + c.dataset.copy; }
-    catch { state.toast = c.dataset.copy; }
-    rerender();
-    clearTimeout(state.toastT); state.toastT = setTimeout(() => { state.toast = ''; rerender(); }, 4000);
-    return;
-  }
   if (e.target.closest('#schedBtn')) { state.sched = !state.sched; rerender(); return; }
   if (e.target.closest('#logBtn')) { state.logAll = !state.logAll; rerender(); return; }
   if (e.target.closest('#syncBtn')) load(true);
 });
 document.addEventListener('change', (e) => {
+  if (e.target.id === 'provider') { state[e.target.id] = e.target.value; state.previousId = null; render(); }
   if (e.target.id === 'theme') { state.theme = e.target.value; localStorage.setItem('slop.theme', state.theme); render(); }
 });
 
 load();
+setInterval(rerender, 15_000); // age readings even if a fetch stalls
 setInterval(load, 30_000); // server polls the providers every ~2 min; this just picks up its latest snapshot
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>

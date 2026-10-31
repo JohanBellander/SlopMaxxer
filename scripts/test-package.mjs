@@ -29,6 +29,9 @@ try {
   const version = JSON.parse(readFileSync(join(root, 'package.json'))).version;
   assert.equal(run(['exec', '--offline', '--', 'slopmaxxer', '--version']).trim(), version);
   assert.match(run(['exec', '--offline', '--', 'slopmaxxer', '--help']), /Usage: slopmaxxer/);
+  const status = JSON.parse(run(['exec', '--offline', '--', 'slopmaxxer', 'status', '--demo', '--json']));
+  assert.ok(status.guidance.next.usable);
+  assert.equal(status.nextUp, status.guidance.next.id);
   const probe = net.createServer();
   probe.listen(0, '127.0.0.1');
   await once(probe, 'listening');
@@ -45,7 +48,7 @@ try {
       if (String(data).includes('http://')) { clearTimeout(timer); resolve(); }
     });
   });
-  for (const path of ['/', '/slop.js', '/tokens.css', '/classic', '/api/slop']) {
+  for (const path of ['/', '/slop.js', '/guidance.js', '/tokens.css', '/classic', '/api/slop']) {
     const response = await fetch(`http://127.0.0.1:${port}${path}`);
     assert.equal(response.status, 200, path);
     const body = await response.text();

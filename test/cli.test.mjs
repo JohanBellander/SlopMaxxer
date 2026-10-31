@@ -23,7 +23,7 @@ test('version matches the package metadata', () => {
   assert.equal(result.stdout.trim(), pkg.version);
 });
 test('invalid arguments fail promptly with useful errors', () => {
-  for (const args of [['wat'], ['--wat'], ['--port'], ['--port', 'abc'], ['--port', '0'], ['--port', '65536'], ['status', '--demo'], ['accounts', '--json']]) {
+  for (const args of [['wat'], ['--wat'], ['--port'], ['--port', 'abc'], ['--port', '0'], ['--port', '65536'], ['status', '--provider'], ['status', '--provider', 'invalid'], ['accounts', '--json']]) {
     const result = run(...args);
     assert.equal(result.status, 1, JSON.stringify(args));
     assert.match(result.stderr, /slopmaxxer --help/);
