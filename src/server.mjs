@@ -1,4 +1,5 @@
-// Tiny local web server: polls in the background and serves the dashboard on 127.0.0.1 only.
+// Tiny local web server on 127.0.0.1 only. It polls the providers on demand: only when a dashboard
+// (or other client) asks and the last reading is older than pollMs, so nobody watching = no requests.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,6 +19,7 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
   let snapshot = null; // classic shape: /api/snapshot (classic.html, CLI)
   let slop = null; // design shape (design/types.ts): /api/slop (index.html)
   let inflight = null;
+  let fetchedAt = 0; // when the last provider poll started
 
   const refresh = () => {
     if (demo) {
@@ -25,8 +27,9 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
       slop = shiftedMock();
       return Promise.resolve(snapshot);
     }
-    const t0 = Date.now();
-    inflight ??= collect()
+    if (inflight) return inflight;
+    const t0 = (fetchedAt = Date.now());
+    inflight = collect()
       .then((s) => {
         snapshot = s;
         try {
@@ -39,9 +42,9 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
       .finally(() => (inflight = null));
     return inflight;
   };
-  refresh();
-  const timer = setInterval(refresh, pollMs);
-  timer.unref?.();
+  // No background timer: re-poll only when someone asks and the reading has aged past pollMs.
+  const ensureFresh = (force) =>
+    force || !snapshot || Date.now() - fetchedAt >= pollMs ? refresh() : undefined;
 
   const json = (res, body) => {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -52,11 +55,11 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
     const url = new URL(req.url, 'http://localhost');
     const force = url.searchParams.has('refresh');
     if (url.pathname === '/api/snapshot') {
-      if (force || !snapshot) await refresh();
+      await ensureFresh(force);
       return json(res, snapshot);
     }
     if (url.pathname === '/api/slop') {
-      if (force || !slop) await refresh();
+      await ensureFresh(force || !slop);
       return json(res, slop);
     }
     // Old bookmarks use the same decision UI; the archived page has obsolete verdict rules.
@@ -77,11 +80,9 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
       server.listen(0, '127.0.0.1');
       return;
     }
-    clearInterval(timer);
     if (onError) onError(error);
     else throw error;
   });
-  server.once('close', () => clearInterval(timer));
   server.once('listening', () => onReady?.(`http://127.0.0.1:${server.address().port}`));
   server.listen(port, '127.0.0.1');
   return server;

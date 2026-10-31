@@ -16,7 +16,7 @@ for the user-facing feature list and guidance rules.
 bin/slopmaxxer.mjs      CLI: serve (default) · status [--json] · accounts; flags --port --no-open --demo
 src/discover.mjs        finds installs (~/.claude*, ~/.codex*, CLAUDE_CONFIG_DIR, CODEX_HOME, ~/.slopmaxxer/config.json)
 src/providers/          claude.mjs · codex.mjs — live limit reads via the CLIs' own (undocumented) usage endpoints
-src/collect.mjs         polls (~120s), dedupes logins, stores readings
+src/collect.mjs         polls (on demand, ≥120s apart, only while a dashboard is visible), dedupes logins, stores readings
 src/backfill.mjs        7-day history from Codex session logs (exact) and Claude transcripts (estimated)
 src/snapshot.mjs        builds the SlopSnapshot the UI eats + the event log diff
 src/server.mjs          127.0.0.1 server: /api/slop (index.html), /api/snapshot (classic.html + CLI), static files

@@ -314,7 +314,8 @@ document.addEventListener('change', (e) => {
 
 load();
 setInterval(rerender, 15_000); // age readings even if a fetch stalls
-setInterval(load, 30_000); // server polls the providers every ~2 min; this just picks up its latest snapshot
+// The server only polls providers when asked, so a hidden tab must not ask (saves 429s).
+setInterval(() => { if (!document.hidden) load(); }, 30_000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
 </body>
