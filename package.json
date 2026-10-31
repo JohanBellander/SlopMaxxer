@@ -1,0 +1,14 @@
+{
+  "name": "slopmaxxer",
+  "version": "0.1.0",
+  "description": "See every Claude & Codex account's limits in one place — and whether to pick up or slow down.",
+  "type": "module",
+  "bin": { "slopmaxxer": "bin/slopmaxxer.mjs" },
+  "scripts": {
+    "start": "node bin/slopmaxxer.mjs",
+    "status": "node bin/slopmaxxer.mjs status",
+    "test": "node --test test/"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}

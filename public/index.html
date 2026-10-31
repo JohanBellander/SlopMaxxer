@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SlopMaxxer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍝</text></svg>" />
+<style>
+  :root {
+    --bg: #0d0b14; --panel: #17131f; --panel2: #1f1a2b; --line: #2d2640; --text: #efeaf7; --muted: #9a90ad;
+    --claude: #e8875b; --codex: #8fd3ff; --good: #5ee6a0; --warn: #ffcf5c; --bad: #ff5c7a; --urgent: #ff6bd6; --idle: #8a83a0;
+    --mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 600px at 10% -10%, #2a1740 0%, transparent 60%), radial-gradient(900px 500px at 110% 0%, #10304a 0%, transparent 55%), var(--bg); color: var(--text); font: 15px/1.45 system-ui, 'Segoe UI', sans-serif; min-height: 100vh; }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 22px 60px; }
+  header { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
+  .logo { font-size: 34px; font-weight: 900; letter-spacing: -1px; }
+  .logo span { background: linear-gradient(90deg, #ff9a5c, #ff6bd6 50%, #8fd3ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .logo .bowl { display: inline-block; animation: wobble 3s ease-in-out infinite; }
+  @keyframes wobble { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg) translateY(-2px); } }
+  .tag { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  button:hover { border-color: #4a3f66; }
+  button.on { border-color: var(--good); color: var(--good); }
+
+  .hero { display: grid; grid-template-columns: 260px 1fr; gap: 18px; margin-bottom: 18px; }
+  @media (max-width: 760px) { .hero { grid-template-columns: 1fr; } }
+  .panel { background: linear-gradient(180deg, var(--panel), #130f1a); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+  .meter { text-align: center; }
+  .meter h3, .panel h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); font-weight: 700; }
+  .meter .score { font: 800 56px/1 var(--mono); }
+  .meter .rank { margin-top: 6px; font-weight: 800; font-size: 18px; }
+  .meter .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .next { display: flex; flex-direction: column; justify-content: center; }
+  .next .big { font-size: 22px; font-weight: 800; }
+  .next .why { color: var(--muted); margin-top: 4px; }
+  .timeline { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .chip { font: 12px var(--mono); padding: 5px 9px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); color: var(--muted); }
+  .chip b { color: var(--text); font-weight: 700; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; }
+  .card { position: relative; overflow: hidden; }
+  .card::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--accent); }
+  .card.claude { --accent: var(--claude); } .card.codex { --accent: var(--codex); }
+  .card.nextup { box-shadow: 0 0 0 1px var(--warn), 0 0 30px -6px var(--warn); }
+  .crown { position: absolute; top: 12px; right: 14px; font-size: 12px; font-weight: 800; color: var(--warn); letter-spacing: .06em; }
+  .who { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .who .dot { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); font-weight: 900; }
+  .who .name { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; }
+  .meta { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .verdict { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; margin-bottom: 16px; background: color-mix(in srgb, var(--tone) 12%, transparent); border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent); }
+  .verdict .e { font-size: 24px; line-height: 1; }
+  .verdict .t { font-weight: 900; color: var(--tone); letter-spacing: .04em; font-size: 13px; }
+  .verdict .h { font-size: 13px; }
+  .tone-good { --tone: var(--good); } .tone-warn { --tone: var(--warn); } .tone-bad { --tone: var(--bad); } .tone-urgent { --tone: var(--urgent); } .tone-idle { --tone: var(--idle); }
+  .tone-urgent .e { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform: scale(1.25); } }
+
+  .win { margin-bottom: 14px; }
+  .win .row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+  .win .row .l { font-weight: 700; }
+  .win .row .r { font-family: var(--mono); color: var(--muted); }
+  .track { position: relative; height: 14px; border-radius: 999px; background: #0c0912; border: 1px solid var(--line); overflow: visible; }
+  .fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 60%, #000), var(--accent)); transition: width .8s cubic-bezier(.2,.8,.2,1); }
+  .pace { position: absolute; top: -5px; bottom: -5px; width: 2px; background: var(--text); border-radius: 2px; opacity: .85; }
+
+  .stats { display: flex; gap: 14px; margin-top: 6px; font: 11px var(--mono); color: var(--muted); flex-wrap: wrap; }
+  .stats b { color: var(--text); font-weight: 600; }
+  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 10px; }
+  .spark { height: 34px; flex: 1; }
+  .badge { font: 11px var(--mono); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .err { color: var(--bad); font-size: 13px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+  footer { margin-top: 26px; color: var(--muted); font-size: 12px; text-align: center; }
+  .burst { position: fixed; pointer-events: none; font-size: 26px; animation: fly 1.6s ease-out forwards; z-index: 9; }
+  @keyframes fly { to { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo"><span class="bowl">🍝</span> <span>SlopMaxxer</span></div>
+    <div class="tag" id="tagline">every token unused is a token wasted</div>
+    <div class="spacer"></div>
+    <div class="tag" id="updated"></div>
+    <button id="notify" title="Desktop alerts when an account needs attention">🔔 Alerts off</button>
+    <button id="refresh">↻ Refresh</button>
+  </header>
+
+  <section class="hero">
+    <div class="panel meter">
+      <h3>Slop-o-meter</h3>
+      <div class="score" id="score">—</div>
+      <div class="rank" id="rank"></div>
+      <div class="sub">weekly usage vs. pace, all accounts</div>
+    </div>
+    <div class="panel next">
+      <h3>Next task goes to</h3>
+      <div class="big" id="nextBig">…</div>
+      <div class="why" id="nextWhy"></div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </section>
+
+  <section class="grid" id="cards"></section>
+  <footer>Reads the logins your Claude Code &amp; Codex CLIs already have · never changes them · runs only on 127.0.0.1</footer>
+</main>
+
+<script>
+const VERDICTS = {
+  COOKED: ['🔥', 'COOKED', 'bad'], SLOW_DOWN: ['🧊', 'SLOW DOWN', 'warn'], LOSE_IT: ['🚨', 'USE IT OR LOSE IT', 'urgent'],
+  PICK_UP: ['🍝', 'FEED THE SLOP', 'urgent'], IDLE: ['😴', 'WINDOW ASLEEP', 'idle'], ON_PACE: ['✨', 'ON PACE', 'good'],
+  MAXXED: ['👑', 'MAXXED', 'good'], WAIT: ['⏳', 'WAIT FOR RESET', 'warn'], UNKNOWN: ['❓', 'NO DATA', 'idle'],
+};
+const RANKS = [[0, '🪦 Token Graveyard'], [40, '🐌 Casual Prompter'], [70, '🍝 Slop Apprentice'], [90, '🔥 Slop Chef'], [105, '🧠 Certified SlopMaxxer'], [130, '🚀 Rate-Limit Speedrunner']];
+const TAGLINES = ['every token unused is a token wasted', 'your agents are idle. this is a cry for help.', 'the weekly limit fears you', 'leave no token behind', 'slop responsibly'];
+
+let snap = null;
+let lastVerdicts = JSON.parse(localStorage.getItem('slop.verdicts') || '{}');
+let notifyOn = localStorage.getItem('slop.notify') === '1' && 'Notification' in window && Notification.permission === 'granted';
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+function dur(ms) {
+  if (ms == null || !isFinite(ms)) return '—';
+  if (ms <= 0) return 'now';
+  const s = Math.floor(ms / 1000), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m ${String(sec).padStart(2, '0')}s`;
+  return `${m}m ${String(sec).padStart(2, '0')}s`;
+}
+const hrs = (h) => (h == null || !isFinite(h) ? '—' : h < 1 ? `${Math.round(h * 60)}m` : h < 48 ? `${h.toFixed(1)}h` : `${(h / 24).toFixed(1)}d`);
+
+function sparkSvg(points, color) {
+  if (!points || points.length < 2) return '<div class="badge">collecting history…</div>';
+  const t0 = points[0][0], t1 = points[points.length - 1][0] || t0 + 1;
+  const W = 200, H = 34;
+  const d = points.map(([t, v], i) => `${i ? 'L' : 'M'}${(((t - t0) / (t1 - t0 || 1)) * W).toFixed(1)},${(H - 2 - (v / 100) * (H - 4)).toFixed(1)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function windowHtml(w) {
+  const used = Math.min(100, w.usedPercent);
+  const left = w.idle ? 'not started' : `<span data-reset="${w.resetsAt}"></span>`;
+  const stats = w.idle ? '' : `<div class="stats">
+      <span>pace <b>${Math.round(w.expectedPercent)}%</b></span>
+      <span>burn <b>${w.ratePerHour.toFixed(1)}%/h</b></span>
+      <span>need <b>${w.neededPerHour != null ? w.neededPerHour.toFixed(1) + '%/h' : '—'}</b></span>
+      <span>at reset <b>${Math.min(100, Math.round(w.projectedPercent))}%</b></span>
+    </div>`;
+  return `<div class="win">
+    <div class="row"><span class="l">${esc(w.label)}</span><span class="r">${Math.round(w.usedPercent)}% · ${left}</span></div>
+    <div class="track"><div class="fill" style="width:${used}%"></div>${w.idle ? '' : `<div class="pace" title="where you should be by now" style="left:calc(${Math.min(100, w.expectedPercent)}% - 1px)"></div>`}</div>
+    ${stats}
+  </div>`;
+}
+
+function cardHtml(a) {
+  const [e, title, tone] = VERDICTS[a.verdict] || VERDICTS.UNKNOWN;
+  const who = a.nickname || a.email || a.dirs?.[0] || a.dir;
+  const color = a.provider === 'claude' ? 'var(--claude)' : 'var(--codex)';
+  const meta = [a.provider === 'claude' ? 'Claude' : 'Codex', a.plan, a.org].filter(Boolean).map(esc).join(' · ');
+  return `<article class="panel card ${a.provider} ${snap.nextUp === a.id ? 'nextup' : ''}">
+    ${snap.nextUp === a.id ? '<div class="crown">👑 NEXT UP</div>' : ''}
+    <div class="who"><div class="dot">${a.provider === 'claude' ? '✳' : '◎'}</div><div class="name" title="${esc(who)}">${esc(who)}</div></div>
+    <div class="meta">${meta}</div>
+    <div class="verdict tone-${tone}"><div class="e">${e}</div><div><div class="t">${title}</div><div class="h">${esc(a.headline)}</div></div></div>
+    ${a.error && !a.windows.length ? `<div class="err">${esc(a.error)}</div>` : ''}
+    ${a.windows.map(windowHtml).join('')}
+    <div class="foot">${sparkSvg(a.spark, color)}
+      ${a.resetCredits ? `<span class="badge">🎟️ ${a.resetCredits} banked reset${a.resetCredits > 1 ? 's' : ''}</span>` : ''}
+      ${a.slopScore != null ? `<span class="badge">score ${a.slopScore}</span>` : ''}
+    </div>
+    ${a.note ? `<div class="note">${esc(a.note)}</div>` : ''}
+    ${a.stale && !a.note && a.windows.length ? '<div class="note">⚠ data may be stale</div>' : ''}
+  </article>`;
+}
+
+function render() {
+  if (!snap) return;
+  const accts = snap.accounts;
+  $('cards').innerHTML = accts.length ? accts.map(cardHtml).join('')
+    : '<div class="panel empty">No Claude Code or Codex logins found.<br/>Run <code>claude</code> or <code>codex</code> and log in. SlopMaxxer finds them automatically.</div>';
+
+  const scores = accts.map((a) => a.slopScore).filter((s) => s != null);
+  const score = scores.length ? Math.round(scores.reduce((x, y) => x + y, 0) / scores.length) : null;
+  $('score').textContent = score ?? '—';
+  $('rank').textContent = score == null ? '' : RANKS.filter(([min]) => score >= min).pop()[1];
+  $('score').style.color = score == null ? '' : score < 70 ? 'var(--urgent)' : score > 115 ? 'var(--warn)' : 'var(--good)';
+
+  const next = accts.find((a) => a.id === snap.nextUp);
+  if (next) {
+    const wk = next.windows.find((w) => w.kind === 'weekly') || next.windows[0];
+    $('nextBig').innerHTML = `${next.provider === 'claude' ? '✳ Claude' : '◎ Codex'} · ${esc(next.nickname || next.email || '')}`;
+    $('nextWhy').textContent = `${Math.round(100 - wk.usedPercent)}% left, resets in ${hrs(wk.hoursLeft)}. This account has the most capacity running out soonest.`;
+  } else {
+    $('nextBig').textContent = accts.length ? 'Everything is cooked 🔥' : '—';
+    $('nextWhy').textContent = accts.length ? 'Go outside. Your limits will be back.' : '';
+  }
+
+  const upcoming = accts.flatMap((a) => a.windows.filter((w) => !w.idle).map((w) => ({ a, w })))
+    .sort((x, y) => x.w.resetsAt - y.w.resetsAt).slice(0, 8);
+  $('timeline').innerHTML = upcoming.map(({ a, w }) =>
+    `<span class="chip">${a.provider === 'claude' ? '✳' : '◎'} ${esc(w.label)} <b data-reset="${w.resetsAt}"></b></span>`).join('');
+
+  tick();
+  checkAlerts();
+}
+
+function tick() {
+  for (const el of document.querySelectorAll('[data-reset]')) {
+    const ms = Number(el.dataset.reset) - Date.now();
+    el.textContent = ms > 0 ? `resets in ${dur(ms)}` : 'reset! refreshing…';
+  }
+  if (snap) $('updated').textContent = `updated ${dur(Date.now() - snap.generatedAt).replace(/^now$/, '0s')} ago`;
+}
+
+function burst(emojis = ['🍝', '🔥', '✨', '🪙']) {
+  for (let i = 0; i < 24; i++) {
+    const s = document.createElement('div');
+    s.className = 'burst';
+    s.textContent = emojis[i % emojis.length];
+    s.style.left = '50%'; s.style.top = '40%';
+    s.style.setProperty('--dx', `${(Math.random() - 0.5) * 900}px`);
+    s.style.setProperty('--dy', `${(Math.random() - 0.3) * 600}px`);
+    s.style.setProperty('--rot', `${(Math.random() - 0.5) * 720}deg`);
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), 1700);
+  }
+}
+
+function checkAlerts() {
+  const LOUD = ['LOSE_IT', 'PICK_UP', 'IDLE', 'SLOW_DOWN'];
+  for (const a of snap.accounts) {
+    const prev = lastVerdicts[a.id];
+    if (prev && prev !== a.verdict) {
+      if (a.verdict === 'MAXXED' || (['COOKED', 'WAIT'].includes(prev) && !['COOKED', 'WAIT'].includes(a.verdict))) burst();
+      if (notifyOn && LOUD.includes(a.verdict)) {
+        const [e, title] = VERDICTS[a.verdict];
+        new Notification(`${e} ${title} · ${a.provider === 'claude' ? 'Claude' : 'Codex'}`, { body: a.headline, tag: a.id });
+      }
+    }
+    lastVerdicts[a.id] = a.verdict;
+  }
+  localStorage.setItem('slop.verdicts', JSON.stringify(lastVerdicts));
+}
+
+async function load(force) {
+  try {
+    const r = await fetch('/api/snapshot' + (force ? '?refresh=1' : ''));
+    snap = await r.json();
+    render();
+  } catch (e) {
+    $('updated').textContent = 'server offline?';
+  }
+}
+
+function paintNotify() {
+  $('notify').textContent = notifyOn ? '🔔 Alerts on' : '🔕 Alerts off';
+  $('notify').classList.toggle('on', notifyOn);
+}
+$('notify').onclick = async () => {
+  if (!('Notification' in window)) return alert('This browser has no notifications.');
+  if (!notifyOn && Notification.permission !== 'granted') await Notification.requestPermission();
+  notifyOn = !notifyOn && Notification.permission === 'granted';
+  localStorage.setItem('slop.notify', notifyOn ? '1' : '0');
+  paintNotify();
+};
+$('refresh').onclick = () => { load(true); burst(['↻', '🍝']); };
+$('tagline').textContent = TAGLINES[Math.floor(Math.random() * TAGLINES.length)];
+
+paintNotify();
+load();
+setInterval(tick, 1000);
+setInterval(() => load(), 30_000);
+// When a window resets, refetch right away instead of waiting for the next poll.
+setInterval(() => {
+  if (snap?.accounts.some((a) => a.windows.some((w) => !w.idle && w.resetsAt < Date.now() && w.resetsAt > Date.now() - 2000))) setTimeout(() => load(true), 5000);
+}, 1000);
+</script>
+</body>
+</html>

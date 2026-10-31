@@ -1,0 +1,88 @@
+// Claude Code: reads the OAuth token the CLI already stored and asks Anthropic for the same
+// numbers `/usage` shows. Read-only: we never refresh or rewrite credentials, so we can't
+// break the real CLI's login. An expired token just means "open Claude once to refresh".
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
+
+function readJson(p) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
+}
+
+function identity(dir) {
+  // Default install keeps account info in ~/.claude.json; CLAUDE_CONFIG_DIR installs keep it inside the dir.
+  const isDefault = path.resolve(dir).toLowerCase() === path.join(os.homedir(), '.claude').toLowerCase();
+  const meta = readJson(isDefault ? path.join(os.homedir(), '.claude.json') : path.join(dir, '.claude.json'))
+    || readJson(path.join(dir, '.claude.json'));
+  const acct = meta?.oauthAccount || {};
+  return {
+    email: acct.emailAddress || null,
+    name: acct.displayName || acct.fullName || null,
+    org: acct.organizationName || null,
+    accountKey: acct.accountUuid ? `${acct.accountUuid}:${acct.organizationUuid || ''}` : null,
+  };
+}
+
+const TIER_NAMES = {
+  default_claude_max_5x: 'Max 5x',
+  default_claude_max_20x: 'Max 20x',
+  default_claude_pro: 'Pro',
+};
+
+function toWindow(kind, label, w, windowSeconds) {
+  if (!w) return null;
+  const resetsAt = w.resets_at ? Date.parse(w.resets_at) : null;
+  return {
+    kind,
+    label,
+    usedPercent: Number(w.utilization ?? 0),
+    windowSeconds,
+    resetsAt,
+    // A rolling 5h window that hasn't been started has no reset yet.
+    idle: resetsAt == null || resetsAt < Date.now(),
+  };
+}
+
+export async function fetchClaude({ dir }) {
+  const creds = readJson(path.join(dir, '.credentials.json'))?.claudeAiOauth;
+  const id = identity(dir);
+  const base = {
+    provider: 'claude',
+    dir,
+    ...id,
+    plan: creds ? TIER_NAMES[creds.rateLimitTier] || creds.subscriptionType || creds.rateLimitTier : null,
+  };
+  if (!creds?.accessToken) return { ...base, error: 'Not logged in (no OAuth token)' };
+  if (creds.expiresAt && creds.expiresAt < Date.now()) {
+    return { ...base, error: 'Token expired — open Claude Code once and it refreshes itself', stale: true };
+  }
+
+  const res = await fetch(USAGE_URL, {
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      'anthropic-beta': 'oauth-2025-04-20',
+      'User-Agent': 'slopmaxxer',
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) return { ...base, error: `Anthropic said HTTP ${res.status}`, stale: res.status === 401 };
+  const u = await res.json();
+
+  const windows = [
+    toWindow('session', '5-hour', u.five_hour, 5 * 3600),
+    toWindow('weekly', 'Weekly', u.seven_day, 7 * 86400),
+    toWindow('weekly_opus', 'Weekly · Opus', u.seven_day_opus, 7 * 86400),
+    toWindow('weekly_sonnet', 'Weekly · Sonnet', u.seven_day_sonnet, 7 * 86400),
+  ].filter(Boolean);
+
+  return {
+    ...base,
+    windows,
+    extraUsage: u.extra_usage?.is_enabled
+      ? { utilization: u.extra_usage.utilization, currency: u.extra_usage.currency }
+      : null,
+    resetCredits: null,
+  };
+}
