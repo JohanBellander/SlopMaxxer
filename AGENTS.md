@@ -33,6 +33,7 @@ docs/                   README screenshots
 | Task | Command |
 |---|---|
 | Tests | `npm test` (= `node --test test/`) |
+| Installed package smoke test | `npm run test:package` |
 | Syntax check | `node --check <file>` |
 | Dashboard with fake data (safe, no real accounts) | `node bin/slopmaxxer.mjs --demo --port 4748 --no-open` |
 | Dashboard with real accounts | `node bin/slopmaxxer.mjs` → http://127.0.0.1:4747 |
@@ -59,6 +60,12 @@ Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CON
   Real state is written to `~/.slopmaxxer/` (history.jsonl, events.jsonl, state.json) — don't commit or delete it.
 - The usage endpoints aren't public APIs and can change; on failure an account keeps its last reading, flagged stale.
 - Use a non-default port (e.g. 4748) for dev so you don't collide with a running instance on 4747.
+
+## Distribution
+- The npm executable is `bin/slopmaxxer.mjs`; resolve assets relative to modules, not the working directory.
+- The package allowlist ships `bin/`, `src/`, and `public/` plus npm's automatic metadata and README.
+- `npm run test:package` checks the packed, installed command and demo dashboard outside the checkout.
+- See `docs/releasing.md` when publishing a release; publish only when requested.
 
 ## Agent setup
 This repo is worked on by both Claude Code and Codex; keep them in sync.

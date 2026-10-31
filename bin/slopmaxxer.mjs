@@ -3,18 +3,62 @@
 // slopmaxxer status     → one-shot terminal overview
 // slopmaxxer accounts   → list discovered installs
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { collect } from '../src/collect.mjs';
 import { discoverInstalls } from '../src/discover.mjs';
 import { VERDICTS, fmtDuration } from '../src/pace.mjs';
 import { startServer } from '../src/server.mjs';
 
-let [cmd = 'serve', ...rest] = process.argv.slice(2);
-if (cmd.startsWith('--')) [cmd, rest] = ['serve', [cmd, ...rest]];
+const args = process.argv.slice(2);
+const usage = `Usage: slopmaxxer [command] [options]
+
+Commands:
+  serve       Open the local dashboard (default)
+  status      Print a one-shot terminal summary
+  accounts    List discovered Claude Code and Codex logins
+
+Options:
+  --demo            Show sample accounts (serve)
+  --no-open         Start without opening a browser (serve)
+  --port <number>   Listen on port 1–65535 (serve; default: 4747)
+  --json            Print JSON (status)
+  -h, --help        Show help
+  -v, --version     Show version
+
+Examples:
+  npx slopmaxxer
+  npx slopmaxxer --demo
+  npx slopmaxxer status --json
+
+Log in with Claude Code or Codex first; existing logins are found automatically.
+Keep the terminal open while using the dashboard. Press Ctrl+C to stop.`;
+if (args.includes('--help') || args.includes('-h') || args[0] === 'help') {
+  console.log(usage);
+  process.exit(0);
+}
+if (args.includes('--version') || args.includes('-v')) {
+  console.log(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+  process.exit(0);
+}
+function fail(message) {
+  console.error(`slopmaxxer: ${message}\nRun slopmaxxer --help for usage.`);
+  process.exit(1);
+}
+let [cmd = 'serve', ...rest] = args;
+if (cmd.startsWith('-')) [cmd, rest] = ['serve', args];
+const allowed = { serve: ['--demo', '--no-open', '--port'], status: ['--json'], accounts: [] };
+if (!Object.hasOwn(allowed, cmd)) fail(`Unknown command: ${cmd}`);
+for (let i = 0; i < rest.length; i++) {
+  if (!allowed[cmd].includes(rest[i])) fail(`Unknown option for ${cmd}: ${rest[i]}`);
+  if (rest[i] === '--port' && (!rest[++i] || !/^\d+$/.test(rest[i]))) fail('--port requires a number from 1 to 65535.');
+}
 const flag = (name) => rest.includes(`--${name}`);
 const opt = (name, dflt) => {
   const i = rest.indexOf(`--${name}`);
   return i >= 0 ? rest[i + 1] : dflt;
 };
+const port = Number(opt('port', process.env.PORT || 4747));
+if (cmd === 'serve' && (!Number.isInteger(port) || port < 1 || port > 65535)) fail('Port must be a number from 1 to 65535.');
 
 const c = process.stdout.isTTY && !process.env.NO_COLOR
   ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, yel: (s) => `\x1b[33m${s}\x1b[0m`, grn: (s) => `\x1b[32m${s}\x1b[0m`, mag: (s) => `\x1b[35m${s}\x1b[0m` }
@@ -54,7 +98,9 @@ async function status() {
 function openBrowser(url) {
   const [bin, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
     : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
-  spawn(bin, args, { stdio: 'ignore', detached: true }).unref();
+  const child = spawn(bin, args, { stdio: 'ignore', detached: true, windowsHide: true });
+  child.on('error', () => console.error(`Could not open a browser. Open ${url} manually.`));
+  child.unref();
 }
 
 switch (cmd) {
@@ -66,13 +112,15 @@ switch (cmd) {
     break;
   case 'serve':
     startServer({
-      port: Number(opt('port', process.env.PORT || 4747)),
+      port,
       demo: flag('demo'),
       onReady: (url) => {
         console.log(`🍝 SlopMaxxer is watching your tokens at ${url}  (Ctrl+C to stop)`);
         if (!flag('no-open')) openBrowser(url);
       },
-    });
+    }).on('error', (error) => fail(error.code === 'EADDRINUSE'
+      ? `Port ${port} is already in use. Try slopmaxxer --port ${port === 65535 ? 4747 : port + 1}.`
+      : `Could not start the dashboard: ${error.message}`));
     break;
   default:
     console.log('usage: slopmaxxer [serve [--port 4747] [--no-open] [--demo] | status [--json] | accounts]');
