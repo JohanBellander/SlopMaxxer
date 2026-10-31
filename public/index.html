@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en" data-theme="phosphor">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SlopMaxxer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>❯</text></svg>">
+<!-- Web fonts are optional: offline it falls back to the system monospace / sans. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font: 13px/1.6 var(--font-mono); font-variant-ligatures: none; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px clamp(16px, 3vw, 40px) 64px; display: flex; flex-direction: column; gap: 28px; }
+  .muted { color: var(--muted); }
+  .prompt { color: var(--prompt); }
+  .pre { white-space: pre; }
+
+  /* header */
+  .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+  .brand { font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }
+  .brand b { color: var(--accent); font-weight: 800; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 12px; color: var(--muted); }
+  .meta select { background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font: 12px var(--font-mono); }
+  .meta .sync { background: none; border: 0; padding: 0; color: var(--muted); font-size: 12px; }
+  .meta .sync:hover { color: var(--txt); }
+  .demo { padding: 1px 8px; border-radius: var(--radius-chip); color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); font-weight: 700; }
+
+  /* verdict */
+  .verdict { display: flex; flex-direction: column; gap: 14px; }
+  .verdict h1 { margin: 0; font: 700 clamp(36px, 5vw, 60px)/1.05 var(--font-sans); letter-spacing: -0.03em; }
+  .verdict h1 .why { color: var(--muted); font-weight: 500; }
+  .nexttask { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+  .nexttask .label { font: 18px var(--font-sans); color: var(--muted); }
+  .nexttask .slug { font-weight: 800; font-size: 22px; }
+  .btn-primary { height: 42px; padding: 0 18px; border-radius: var(--radius-btn); border: 0; background: var(--btn-bg); color: var(--btn-fg); font-weight: 700; }
+  .btn-primary:focus-visible, .btn-ghost:focus-visible, .linkbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .toast { color: var(--ok); font-size: 12px; }
+  .avoid { color: var(--muted); }
+  .avoid span { margin-right: 14px; }
+
+  /* layout */
+  .cols { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+  .main { flex: 999 1 620px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .side { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .sechead { display: flex; justify-content: space-between; color: var(--muted); padding: 0 4px; }
+  .sechead small { font-size: 12px; }
+
+  /* account rows */
+  .acct { border-radius: var(--radius-card); background: var(--panel); border: 1px solid var(--border); overflow: hidden; }
+  .acct.cooked { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+  .row { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-height: 60px; padding: 10px 16px; border: 0; background: transparent; text-align: left; }
+  .row:hover { background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+  .row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .row .name { flex: 1 1 200px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .name strong { font-weight: 700; }
+  .chip { flex: 0 0 15ch; padding: 3px 0; border-radius: var(--radius-chip); font-weight: 700; text-align: center; }
+  .row .pred { flex: 0 0 13ch; text-align: right; color: var(--muted); }
+  .row .chev { flex: 0 0 2ch; text-align: right; color: var(--muted); }
+  .details { padding: 4px 16px 16px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 12px; }
+  .advice { padding-top: 10px; font: 15px var(--font-sans); }
+  .meter { white-space: pre; overflow: hidden; }
+  .m16 { display: none; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px; }
+  .stats span { padding: 2px 8px; border-radius: var(--radius-chip); background: var(--panel-2); white-space: nowrap; }
+  .spark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .spark .b { flex: 1; white-space: pre; font-size: 15px; line-height: 1.05; }
+  .days { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12px; margin-top: -6px; }
+  .days .est b { color: var(--muted); font-style: italic; }
+  .days .src { flex-basis: 100%; color: var(--faint); color: color-mix(in srgb, var(--muted) 70%, transparent); }
+  .loglines { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+  .logline { display: grid; grid-template-columns: 8ch 5ch minmax(0, 1fr); gap: 1ch; }
+  .launch { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
+  .launch code { padding: 2px 8px; border-radius: var(--radius-chip); background: var(--log-bg); border: 1px solid var(--border); overflow-wrap: anywhere; }
+
+  .linkbtn { align-self: flex-start; min-height: 40px; padding: 0 4px; border: 0; background: transparent; color: var(--muted); }
+  .sched { border-radius: var(--radius-card); background: var(--panel); border: 1px solid var(--border); padding: 12px 16px; overflow-x: auto; }
+  .sched .inner { width: max-content; white-space: pre; font-size: 12px; }
+  .sched .line { line-height: 1.85; }
+
+  /* log */
+  .log { border-radius: var(--radius-card); background: var(--log-bg); border: 1px solid var(--border); padding: 10px 14px; display: flex; flex-direction: column; font-size: 12px; }
+  .log .logline { padding: 5px 0; border-bottom: 1px dashed var(--border); }
+  .log .foot { display: flex; justify-content: space-between; align-items: center; padding-top: 6px; color: var(--muted); }
+  .cursor { display: inline-block; width: 7px; height: 14px; vertical-align: -2px; background: var(--txt); animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+  .btn-ghost { min-height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 12px; }
+  .empty { padding: 24px 16px; border: 1px dashed var(--border); border-radius: var(--radius-card); color: var(--muted); }
+
+  @media (max-width: 480px) {
+    .m30 { display: none; } .m16 { display: block; }
+    .row .name { flex-basis: 100%; }
+  }
+
+  .r-faint { color: var(--faint); } .r-pace, .r-now { color: var(--now); } .r-ok { color: var(--ok); } .r-txt { color: var(--txt); }
+  .t-ok { color: var(--ok); } .t-warn { color: var(--warn); } .t-hot { color: var(--hot); } .t-pink { color: var(--pink); } .t-red { color: var(--red); } .t-idle { color: var(--idle); } .t-muted { color: var(--muted); } .t-txt { color: var(--txt); }
+</style>
+</head>
+<body>
+<div id="app"><div class="wrap"><span class="brand"><span class="prompt">❯</span> slop<b>maxxer</b></span><div class="muted">reading your accounts…<span class="cursor"></span></div></div></div>
+<script type="module">
+import * as S from './slop.js';
+
+const THEMES = ['phosphor', 'tokyo', 'gruvbox', 'paper', 'synth', 'graphite'];
+const STALE_MS = 5 * 60_000;
+const state = { open: {}, sched: false, logAll: false, theme: localStorage.getItem('slop.theme') || 'phosphor', data: null, fetchedAt: 0, err: null, toast: '' };
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad = (n) => String(n).padStart(2, '0');
+const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const fmt = {
+  time: (iso) => { const d = new Date(iso); return pad(d.getHours()) + ':' + pad(d.getMinutes()); },
+  dayTime: (iso) => { const d = new Date(iso); return DAYS[d.getDay()] + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); },
+  dur: (m) => { m = Math.round(m); if (m >= 1440) { const d = Math.floor(m / 1440); return d + 'd ' + pad(Math.floor((m % 1440) / 60)) + 'h'; } if (m >= 60) return Math.floor(m / 60) + 'h ' + pad(m % 60) + 'm'; return m + 'm'; },
+  hm: (iso) => { const d = new Date(iso); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); },
+};
+// "back at" for a cooked account: the 5h reset if that's the wall, otherwise the weekly one.
+const backAt = (a) => (a.five.active && a.five.usedPct >= 100 ? a.five.resetsAt : a.week.resetsAt);
+const backFmt = (iso) => (iso ? (new Date(iso) - Date.now() < 864e5 ? fmt.time(iso) : fmt.dayTime(iso)) : '?');
+const pvar = (a) => `var(--${a.provider})`;
+const tone = (t) => `var(--${t})`;
+const tint = (t, pct) => `color-mix(in srgb, ${t} ${pct}%, transparent)`;
+const LEVEL = { INFO: ['t-muted', 't-txt'], '429': ['t-red', 't-red'], WARN: ['t-warn', 't-txt'], TIP: ['t-ok', 't-txt'], RANK: ['t-hot', 't-hot'], CRON: ['t-muted', 't-muted'] };
+
+// glyph runs → spans; 'used'/'proj' take the provider colour
+const runs = (rs, a) => rs.map((r) => {
+  if (r.role === 'used') return `<span style="color:${pvar(a)}">${r.text}</span>`;
+  if (r.role === 'proj') return `<span style="color:${tint(pvar(a), 35)}">${r.text}</span>`;
+  return `<span class="r-${r.role}">${r.text}</span>`;
+}).join('');
+
+const logLine = (e) => { const c = LEVEL[e.level] || LEVEL.INFO; return `<div class="logline"><span class="muted">${fmt.hm(e.ts)}</span><span class="${c[0]}" style="font-weight:700">${esc(e.level)}</span><span class="${c[1]}">${esc(e.msg)}</span></div>`; };
+
+function meterBlock(label, w, a) {
+  const bar = (n) => runs(S.meterGlyphs(w, n), a);
+  const both = (tail) => `<div class="m30">${label.padEnd(8).replace(/^(\S+)/, '<span class="muted">$1</span>')}${bar(30)}${tail}</div><div class="m16">${label.padEnd(8).replace(/^(\S+)/, '<span class="muted">$1</span>')}${bar(16)}${tail}</div>`;
+  if (w.none) return `<div class="meter"><div><span class="muted">${label.padEnd(8)}</span><span class="r-faint">${'┄'.repeat(16)}</span> <span class="muted">no 5h limit on this plan</span></div></div>`;
+  if (!w.active) return `<div class="meter">${both(`   <span style="font-weight:700">--</span> <span class="r-now">⟳ idle</span>`)}<div class="muted">        not started · clock starts on first prompt</div></div>`;
+  let note = `→ ${w.projectedPct}% at reset`, cls = 't-txt';
+  if (w.usedPct >= 100) { note = 'capped · back ' + backFmt(w.resetsAt); cls = 't-red'; }
+  else if (w.capInMin != null) { note = 'cap in ' + fmt.dur(w.capInMin); cls = 't-hot'; }
+  return `<div class="meter">${both(` <span style="font-weight:700">${String(w.usedPct + '%').padStart(4)}</span> <span class="r-now">⟳ ${fmt.dur(w.remainingMin)}</span>`)}<div class="muted">        ╋ pace ${w.pacePct}% · <span class="${cls}">${note}</span></div></div>`;
+}
+
+// Day i of the 7-day history (0 = six days ago, 6 = today), as "sat 25".
+const dayName = (i) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 6 + i); return DAYS[d.getDay()] + ' ' + pad(d.getDate()); };
+const dayBreakdown = (a) => (a.dailyPct || []).map((v, i) => `${dayName(i)} ${a.dailyEstimated?.[i] ? '~' : ''}${v}%`).join(' · ');
+
+function details(a) {
+  const w = a.week;
+  const known = a.status !== 'unknown';
+  const pace = w.paceDelta;
+  const stats = !known ? '' : `<div class="stats">
+      <span><span class="muted">pace </span><b class="${pace > 5 ? 't-hot' : pace < -5 ? 't-warn' : 't-txt'}">${pace > 0 ? '+' : pace < 0 ? '−' : '±'}${Math.abs(pace)}pt</b></span>
+      <span><span class="muted">burn </span><b>${w.burnPctPerHour.toFixed(2)}%/h</b></span>
+      <span><span class="muted">need </span><b>${w.needPctPerHour.toFixed(2)}%/h</b></span>
+      <span><span class="muted">weekly refill </span><b>${fmt.dayTime(w.resetsAt)}</b></span>
+      ${a.resetCredits != null ? `<span><span class="muted">banked resets </span><b class="${a.resetCredits > 0 ? 't-ok' : ''}">${a.resetCredits}</b></span>` : ''}
+      ${a.stale ? `<span class="t-warn">⚠ ${esc(a.note || "stale data")}</span>` : ''}
+    </div>`;
+  const maxDay = Math.max(20, ...(a.dailyPct || [0]));
+  return `
+    <div class="details" id="d-${a.id}">
+      <div class="advice">${esc(S.advice(a, fmt))}</div>
+      ${known ? meterBlock('5-hour', a.five, a) + meterBlock('weekly', w, a) : ''}
+      ${stats}
+      <div class="spark" title="${esc(dayBreakdown(a))}"><span class="muted">last 7d${(a.dailyEstimated || []).some(Boolean) ? ' <span class="t-warn">~est</span>' : ''}</span><div class="b" role="img" aria-label="Share of the weekly cap used per day, last 7 days: ${esc(dayBreakdown(a))}" style="color:${pvar(a)}">${S.brailleSpark(a.dailyPct, 18, maxDay).map((r) => `<div>${r}</div>`).join('')}</div><span class="muted">${esc(a.email)}</span></div>
+      <div class="days muted">${(a.dailyPct || []).map((v, i) => `<span${a.dailyEstimated?.[i] ? ' class="est"' : ''}>${dayName(i)} <b class="t-txt">${a.dailyEstimated?.[i] ? '~' : ''}${Math.round(v)}%</b></span>`).join('')}${a.historySource ? `<span class="src">from ${esc(a.historySource)}</span>` : ''}</div>
+      ${a.launch ? `<div class="launch"><span class="muted">run it</span><code>${esc(a.launch)}</code><button class="btn-ghost" type="button" data-copy="${esc(a.launch)}">copy</button></div>` : ''}
+      ${a.events.length ? `<div class="loglines">${a.events.slice(0, 5).map(logLine).join('')}</div>` : ''}
+    </div>`;
+}
+
+function render() {
+  document.documentElement.dataset.theme = state.theme;
+  const app = document.getElementById('app');
+  const snap = state.data;
+  if (!snap) {
+    if (state.err) app.innerHTML = `<div class="wrap"><span class="brand"><span class="prompt">❯</span> slop<b>maxxer</b></span><div class="t-red">can't reach the SlopMaxxer server: ${esc(state.err)}</div></div>`;
+    return;
+  }
+  // Re-derive against the real clock so countdowns and pace lines keep moving between polls.
+  const vm = S.derive({ ...snap, now: new Date().toISOString() });
+  if (!state.init && vm.next) { state.open[vm.next.id] = true; state.init = true; }
+
+  const rows = vm.sorted.map((a) => {
+    const open = !!state.open[a.id];
+    const w = a.week;
+    const known = a.status !== 'unknown';
+    const predCls = w.projectedPct > 100 ? 't-hot' : w.projectedPct < 90 ? 't-warn' : 't-ok';
+    return `
+      <div class="acct ${a.status === 'cooked' ? 'cooked' : ''}">
+        <button class="row" type="button" data-toggle="${a.id}" aria-expanded="${open}" aria-controls="d-${a.id}">
+          <span class="name"><strong style="color:${pvar(a)}">${esc(a.slug)}</strong> <span class="muted">${esc(a.label)}</span></span>
+          <span class="chip" style="color:${tone(a.tone)};background:${tint(tone(a.tone), 15)}">${a.action}</span>
+          <span class="pre">${runs(S.meterGlyphs(w, 20), a)}</span>
+          <span class="pred">${known ? `→ <b class="${predCls}">${w.projectedPct}%</b> wk` : '—'}</span>
+          <span class="chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+        </button>${open ? details(a) : ''}
+      </div>`;
+  }).join('');
+
+  // schedule header: day labels every 12 glyphs (= 24h at 2h/glyph)
+  const start = new Date(vm.now); start.setHours(0, 0, 0, 0);
+  const nameW = Math.max(24, ...vm.sorted.map((a) => (a.slug + ' ' + a.label).length + 2));
+  let head = ''.padEnd(nameW);
+  for (let i = 0; i < 7; i++) { const d = new Date(start.getTime() + i * 864e5); head += (DAYS[d.getDay()] + ' ' + pad(d.getDate())).padEnd(12); }
+  const sched = !state.sched ? '' : '<div class="sched"><div class="inner">'
+    + `<div class="muted">${head}</div>`
+    + vm.sorted.map((a) => `<div class="line"><span style="color:${pvar(a)}">${esc((a.slug + ' ' + a.label).padEnd(nameW))}</span>${runs(S.timelineGlyphs(a, vm.now), a)}</div>`).join('')
+    + '<div class="muted" style="margin-top:4px"><span class="r-now">▎</span>now  ○ 5h refill  <span class="r-ok">◆</span> weekly refill</div>'
+    + '</div></div>';
+
+  const events = snap.events || [];
+  const shown = state.logAll ? events : events.slice(0, 6);
+  const v = vm.verdict;
+  const age = Date.now() - Date.parse(snap.now);
+  const stale = !snap.demo && (age > STALE_MS || state.err);
+
+  app.innerHTML = `
+    <div class="wrap">
+      <header class="top">
+        <span class="brand"><span class="prompt">❯</span> slop<b>maxxer</b></span>
+        <div class="meta">
+          ${snap.demo ? '<span class="demo">demo data</span>' : ''}
+          <span>score <b style="color:var(--accent)">${vm.score}</b> · ${vm.rank.name}</span>
+          <button class="sync" type="button" id="syncBtn" title="refresh now"><span class="${stale ? 't-warn' : 't-ok'}">●</span> ${stale ? 'stale · ' : ''}synced ${fmt.time(snap.now)}</button>
+          <label>theme <select id="theme">${THEMES.map((t) => `<option ${t === state.theme ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        </div>
+      </header>
+
+      <section class="verdict" aria-label="Verdict">
+        <div class="muted"><span class="prompt">❯</span> slop verdict</div>
+        <h1><span style="color:${tone(v.tone)}">${v.arrow} ${v.word}</span> <span class="why">${esc(v.why)}</span></h1>
+        ${vm.next ? `<div class="nexttask"><span class="label">Next task →</span><span class="slug" style="color:${pvar(vm.next)}">${esc(vm.next.slug)}</span><span class="muted">${esc(vm.next.label)}</span><button class="btn-primary" type="button" data-copy="${esc(vm.next.launch || vm.next.provider)}" title="copy the command that starts this account">↵ feed the slop</button><span class="toast" aria-live="polite">${esc(state.toast)}</span></div>` : ''}
+        ${vm.avoid.length ? `<div class="avoid">avoid: ${vm.avoid.map((a) => `<span><span style="color:${pvar(a)}">${esc(a.slug)}</span> ${esc(a.label)} <span style="color:${tone(a.tone)}">(${a.status === 'cooked' ? 'cooked till ' + backFmt(backAt(a)) : a.five.capInMin != null ? 'caps in ' + fmt.dur(a.five.capInMin) : 'running hot'})</span></span>`).join('')}</div>` : ''}
+      </section>
+
+      <div class="cols">
+        <section class="main" aria-label="Accounts">
+          <div class="sechead"><span><span class="prompt">❯</span> slop accounts <span class="r-now">--by priority</span></span><small>tap a row for details</small></div>
+          ${rows || '<div class="empty">No Claude Code or Codex logins found. Log in with <b>claude</b> or <b>codex</b> once, or add dirs to ~/.slopmaxxer/config.json.</div>'}
+          <button class="linkbtn" type="button" id="schedBtn" aria-expanded="${state.sched}">${state.sched ? '▾' : '▸'} refill schedule · next 7 days</button>
+          ${sched}
+        </section>
+        <aside class="side" aria-label="Event log">
+          <div class="sechead"><span><span class="prompt">❯</span> tail -f events.log</span><small class="${stale ? 't-warn' : 't-ok'}">● ${stale ? 'stale' : 'live'}</small></div>
+          <div class="log">
+            ${shown.map(logLine).join('')}
+            <div class="foot"><span><span class="cursor"></span> waiting for tokens…</span>
+            ${events.length > 6 ? `<button class="btn-ghost" type="button" id="logBtn" aria-expanded="${state.logAll}">${state.logAll ? 'show less' : 'show ' + (events.length - 6) + ' more'}</button>` : ''}</div>
+          </div>
+        </aside>
+      </div>
+    </div>`;
+}
+
+async function load(force = false) {
+  try {
+    const r = await fetch('/api/slop' + (force ? '?refresh=1' : ''), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    state.data = await r.json();
+    state.err = null;
+  } catch (e) {
+    state.err = e.message;
+  }
+  rerender();
+}
+
+// Re-render without stealing focus from whatever the user was on.
+function rerender() {
+  const focused = document.activeElement?.dataset?.toggle ? `[data-toggle="${document.activeElement.dataset.toggle}"]` : document.activeElement?.id ? '#' + document.activeElement.id : null;
+  if (document.activeElement?.tagName === 'SELECT') return; // don't close an open theme picker
+  render();
+  if (focused) document.querySelector(focused)?.focus();
+}
+
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-toggle]');
+  if (t) { state.open[t.dataset.toggle] = !state.open[t.dataset.toggle]; rerender(); return; }
+  const c = e.target.closest('[data-copy]');
+  if (c) {
+    try { await navigator.clipboard.writeText(c.dataset.copy); state.toast = 'copied: ' + c.dataset.copy; }
+    catch { state.toast = c.dataset.copy; }
+    rerender();
+    clearTimeout(state.toastT); state.toastT = setTimeout(() => { state.toast = ''; rerender(); }, 4000);
+    return;
+  }
+  if (e.target.closest('#schedBtn')) { state.sched = !state.sched; rerender(); return; }
+  if (e.target.closest('#logBtn')) { state.logAll = !state.logAll; rerender(); return; }
+  if (e.target.closest('#syncBtn')) load(true);
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'theme') { state.theme = e.target.value; localStorage.setItem('slop.theme', state.theme); render(); }
+});
+
+load();
+setInterval(load, 30_000); // server polls the providers every ~2 min; this just picks up its latest snapshot
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+</script>
+</body>
+</html>

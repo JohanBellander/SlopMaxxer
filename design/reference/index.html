@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en" data-theme="phosphor">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SlopMaxxer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font: 13px/1.6 var(--font-mono); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px clamp(16px, 3vw, 40px) 64px; display: flex; flex-direction: column; gap: 28px; }
+  .muted { color: var(--muted); }
+  .prompt { color: var(--prompt); }
+  .pre { white-space: pre; }
+
+  /* header */
+  .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+  .brand { font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }
+  .brand b { color: var(--accent); font-weight: 800; }
+  .meta { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); }
+  .meta select { background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font: 12px var(--font-mono); }
+
+  /* verdict */
+  .verdict { display: flex; flex-direction: column; gap: 14px; }
+  .verdict h1 { margin: 0; font: 700 clamp(36px, 5vw, 60px)/1.05 var(--font-sans); letter-spacing: -0.03em; }
+  .verdict h1 .why { color: var(--muted); font-weight: 500; }
+  .nexttask { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+  .nexttask .label { font: 18px var(--font-sans); color: var(--muted); }
+  .nexttask .slug { font-weight: 800; font-size: 22px; }
+  .btn-primary { height: 42px; padding: 0 18px; border-radius: var(--radius-btn); border: 0; background: var(--btn-bg); color: var(--btn-fg); font-weight: 700; }
+  .avoid { color: var(--muted); }
+  .avoid span { margin-right: 14px; }
+
+  /* layout */
+  .cols { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+  .main { flex: 999 1 620px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .side { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .sechead { display: flex; justify-content: space-between; color: var(--muted); padding: 0 4px; }
+  .sechead small { font-size: 12px; }
+
+  /* account rows */
+  .acct { border-radius: var(--radius-card); background: var(--panel); border: 1px solid var(--border); overflow: hidden; }
+  .acct.cooked { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+  .row { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-height: 60px; padding: 10px 16px; border: 0; background: transparent; text-align: left; }
+  .row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .row .name { flex: 1 1 200px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .name strong { font-weight: 700; }
+  .chip { flex: 0 0 15ch; padding: 3px 0; border-radius: var(--radius-chip); font-weight: 700; text-align: center; }
+  .row .pred { flex: 0 0 13ch; text-align: right; color: var(--muted); }
+  .row .chev { flex: 0 0 2ch; text-align: right; color: var(--muted); }
+  .details { padding: 4px 16px 16px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 12px; }
+  .advice { padding-top: 10px; font: 15px var(--font-sans); }
+  .meter { white-space: pre; overflow: hidden; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px; }
+  .stats span { padding: 2px 8px; border-radius: var(--radius-chip); background: var(--panel-2); white-space: nowrap; }
+  .spark { display: flex; align-items: center; gap: 12px; }
+  .spark .b { flex: 1; white-space: pre; font-size: 15px; line-height: 1.05; }
+  .loglines { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+  .logline { display: grid; grid-template-columns: 8ch 5ch minmax(0, 1fr); gap: 1ch; }
+
+  .linkbtn { align-self: flex-start; min-height: 40px; padding: 0 4px; border: 0; background: transparent; color: var(--muted); }
+  .sched { border-radius: var(--radius-card); background: var(--panel); border: 1px solid var(--border); padding: 12px 16px; overflow-x: auto; }
+  .sched .inner { width: max-content; white-space: pre; font-size: 12px; }
+  .sched .line { line-height: 1.85; }
+
+  /* log */
+  .log { border-radius: var(--radius-card); background: var(--log-bg); border: 1px solid var(--border); padding: 10px 14px; display: flex; flex-direction: column; font-size: 12px; }
+  .log .logline { padding: 5px 0; border-bottom: 1px dashed var(--border); }
+  .log .foot { display: flex; justify-content: space-between; align-items: center; padding-top: 6px; color: var(--muted); }
+  .cursor { display: inline-block; width: 7px; height: 14px; vertical-align: -2px; background: var(--txt); animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+  .btn-ghost { min-height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 12px; }
+
+  .r-faint { color: var(--faint); } .r-pace, .r-now { color: var(--now); } .r-ok { color: var(--ok); } .r-txt { color: var(--txt); }
+  .t-ok { color: var(--ok); } .t-warn { color: var(--warn); } .t-hot { color: var(--hot); } .t-pink { color: var(--pink); } .t-red { color: var(--red); } .t-idle { color: var(--idle); } .t-muted { color: var(--muted); } .t-txt { color: var(--txt); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="mock-data.js"></script>
+<script src="logic.js"></script>
+<script>
+(function () {
+  const S = window.Slop;
+  const state = { open: {}, sched: false, logAll: false, theme: 'phosphor' };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const pad = (n) => String(n).padStart(2, '0');
+  const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const fmt = {
+    time: (iso) => { const d = new Date(iso); return pad(d.getHours()) + ':' + pad(d.getMinutes()); },
+    dayTime: (iso) => { const d = new Date(iso); return DAYS[d.getDay()] + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); },
+    dur: (m) => { m = Math.round(m); if (m >= 1440) { const d = Math.floor(m / 1440); return d + 'd ' + pad(Math.floor((m % 1440) / 60)) + 'h'; } if (m >= 60) return Math.floor(m / 60) + 'h ' + pad(m % 60) + 'm'; return m + 'm'; },
+    hm: (iso) => { const d = new Date(iso); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+  };
+  const pvar = (a) => `var(--${a.provider})`;
+  const tone = (t) => `var(--${t})`;
+  const tint = (t, pct) => `color-mix(in srgb, ${t} ${pct}%, transparent)`;
+  const LEVEL = { INFO: ['t-muted', 't-txt'], '429': ['t-red', 't-red'], WARN: ['t-warn', 't-txt'], TIP: ['t-ok', 't-txt'], RANK: ['t-hot', 't-hot'], CRON: ['t-muted', 't-muted'] };
+
+  // glyph runs → spans; 'used'/'proj' take the provider colour
+  const runs = (rs, a) => rs.map((r) => {
+    if (r.role === 'used') return `<span style="color:${pvar(a)}">${r.text}</span>`;
+    if (r.role === 'proj') return `<span style="color:${tint(pvar(a), 35)}">${r.text}</span>`;
+    return `<span class="r-${r.role}">${r.text}</span>`;
+  }).join('');
+
+  const logLine = (e) => { const c = LEVEL[e.level] || LEVEL.INFO; return `<div class="logline"><span class="muted">${fmt.hm(e.ts)}</span><span class="${c[0]}" style="font-weight:700">${esc(e.level)}</span><span class="${c[1]}">${esc(e.msg)}</span></div>`; };
+
+  function meterBlock(label, w, a) {
+    if (!w.active) return `<div class="meter"><div><span class="muted">${label.padEnd(8)}</span>${runs(S.meterGlyphs(w, 30), a)}   <span style="font-weight:700">--</span> <span class="r-now">⟳ idle</span></div><div class="muted">        not started · clock starts on first prompt</div></div>`;
+    let note = `→ ${w.projectedPct}% at reset`, cls = 't-txt';
+    if (w.usedPct >= 100) { note = 'capped · back ' + fmt.time(w.resetsAt); cls = 't-red'; }
+    else if (w.capInMin != null) { note = 'cap in ' + fmt.dur(w.capInMin); cls = 't-hot'; }
+    return `<div class="meter"><div><span class="muted">${label.padEnd(8)}</span>${runs(S.meterGlyphs(w, 30), a)} <span style="font-weight:700">${String(w.usedPct + '%').padStart(4)}</span> <span class="r-now">⟳ ${fmt.dur(w.remainingMin)}</span></div><div class="muted">        ╋ pace ${w.pacePct}% · <span class="${cls}">${note}</span></div></div>`;
+  }
+
+  function render() {
+    document.documentElement.dataset.theme = state.theme;
+    const vm = S.derive(window.SLOP_DATA);
+    if (!state.init && vm.next) { state.open[vm.next.id] = true; state.init = true; }
+
+    const rows = vm.sorted.map((a) => {
+      const open = !!state.open[a.id];
+      const w = a.week;
+      const predCls = w.projectedPct > 100 ? 't-hot' : w.projectedPct < 90 ? 't-warn' : 't-ok';
+      const pace = w.paceDelta;
+      const details = !open ? '' : `
+        <div class="details" id="d-${a.id}">
+          <div class="advice">${esc(S.advice(a, fmt))}</div>
+          ${meterBlock('5-hour', a.five, a)}
+          ${meterBlock('weekly', w, a)}
+          <div class="stats">
+            <span><span class="muted">pace </span><b class="${pace > 5 ? 't-hot' : pace < -5 ? 't-warn' : 't-txt'}">${pace > 0 ? '+' : pace < 0 ? '−' : '±'}${Math.abs(pace)}pt</b></span>
+            <span><span class="muted">burn </span><b>${w.burnPctPerHour.toFixed(2)}%/h</b></span>
+            <span><span class="muted">need </span><b>${w.needPctPerHour.toFixed(2)}%/h</b></span>
+            <span><span class="muted">weekly refill </span><b>${fmt.dayTime(w.resetsAt)}</b></span>
+          </div>
+          <div class="spark"><span class="muted">last 7d</span><div class="b" role="img" aria-label="Daily usage over the last 7 days" style="color:${pvar(a)}">${S.brailleSpark(a.dailyPct, 18, 20).map((r) => `<div>${r}</div>`).join('')}</div><span class="muted">${esc(a.email)}</span></div>
+          ${a.events.length ? `<div class="loglines">${a.events.map(logLine).join('')}</div>` : ''}
+        </div>`;
+      return `
+        <div class="acct ${a.status === 'cooked' ? 'cooked' : ''}">
+          <button class="row" type="button" data-toggle="${a.id}" aria-expanded="${open}" aria-controls="d-${a.id}">
+            <span class="name"><strong style="color:${pvar(a)}">${esc(a.slug)}</strong> <span class="muted">${esc(a.label)}</span></span>
+            <span class="chip" style="color:${tone(a.tone)};background:${tint(tone(a.tone), 15)}">${a.action}</span>
+            <span class="pre">${runs(S.meterGlyphs(w, 20), a)}</span>
+            <span class="pred">→ <b class="${predCls}">${w.projectedPct}%</b> wk</span>
+            <span class="chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+          </button>${details}
+        </div>`;
+    }).join('');
+
+    // schedule header: day labels every 12 glyphs (= 24h at 2h/glyph)
+    const start = new Date(vm.now); start.setHours(0, 0, 0, 0);
+    let head = ''.padEnd(24);
+    for (let i = 0; i < 7; i++) { const d = new Date(start.getTime() + i * 864e5); head += (DAYS[d.getDay()] + ' ' + pad(d.getDate())).padEnd(12); }
+    const sched = !state.sched ? '' : '<div class="sched"><div class="inner">'
+      + `<div class="muted">${head}</div>`
+      + vm.sorted.map((a) => `<div class="line"><span style="color:${pvar(a)}">${esc((a.slug + ' ' + a.label).padEnd(24))}</span>${runs(S.timelineGlyphs(a, vm.now), a)}</div>`).join('')
+      + '<div class="muted" style="margin-top:4px"><span class="r-now">▎</span>now  ○ 5h refill  <span class="r-ok">◆</span> weekly refill</div>'
+      + '</div></div>';
+
+    const events = window.SLOP_DATA.events;
+    const shown = state.logAll ? events : events.slice(0, 6);
+    const v = vm.verdict;
+
+    document.getElementById('app').innerHTML = `
+      <div class="wrap">
+        <header class="top">
+          <span class="brand"><span class="prompt">❯</span> slop<b>maxxer</b></span>
+          <div class="meta">
+            <span>score <b style="color:var(--accent)">${vm.score}</b> · ${vm.rank.name}</span>
+            <span><span class="t-ok">●</span> synced ${fmt.time(vm.now)}</span>
+            <label>theme <select id="theme">${['phosphor', 'tokyo', 'gruvbox', 'paper', 'synth', 'graphite'].map((t) => `<option ${t === state.theme ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          </div>
+        </header>
+
+        <section class="verdict" aria-label="Verdict">
+          <div class="muted"><span class="prompt">❯</span> slop verdict</div>
+          <h1><span style="color:${tone(v.tone)}">${v.arrow} ${v.word}</span> <span class="why">${esc(v.why)}</span></h1>
+          ${vm.next ? `<div class="nexttask"><span class="label">Next task →</span><span class="slug" style="color:${pvar(vm.next)}">${esc(vm.next.slug)}</span><span class="muted">${esc(vm.next.label)}</span><button class="btn-primary" type="button">↵ feed the slop</button></div>` : ''}
+          ${vm.avoid.length ? `<div class="avoid">avoid: ${vm.avoid.map((a) => `<span><span style="color:${pvar(a)}">${esc(a.slug)}</span> ${esc(a.label)} <span style="color:${tone(a.tone)}">(${a.status === 'cooked' ? 'cooked till ' + fmt.time(a.five.resetsAt) : a.five.capInMin != null ? 'caps in ' + fmt.dur(a.five.capInMin) : 'running hot'})</span></span>`).join('')}</div>` : ''}
+        </section>
+
+        <div class="cols">
+          <section class="main" aria-label="Accounts">
+            <div class="sechead"><span><span class="prompt">❯</span> slop accounts <span class="r-now">--by priority</span></span><small>tap a row for details</small></div>
+            ${rows}
+            <button class="linkbtn" type="button" id="schedBtn" aria-expanded="${state.sched}">${state.sched ? '▾' : '▸'} refill schedule · next 7 days</button>
+            ${sched}
+          </section>
+          <aside class="side" aria-label="Event log">
+            <div class="sechead"><span><span class="prompt">❯</span> tail -f events.log</span><small class="t-ok">● live</small></div>
+            <div class="log">
+              ${shown.map(logLine).join('')}
+              <div class="foot"><span><span class="cursor"></span> waiting for tokens…</span>
+              <button class="btn-ghost" type="button" id="logBtn" aria-expanded="${state.logAll}">${state.logAll ? 'show less' : 'show ' + (events.length - 6) + ' more'}</button></div>
+            </div>
+          </aside>
+        </div>
+      </div>`;
+  }
+
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-toggle]');
+    if (t) { const id = t.dataset.toggle; state.open[id] = !state.open[id]; render(); document.querySelector(`[data-toggle="${id}"]`).focus(); return; }
+    if (e.target.closest('#schedBtn')) { state.sched = !state.sched; render(); return; }
+    if (e.target.closest('#logBtn')) { state.logAll = !state.logAll; render(); }
+  });
+  document.addEventListener('change', (e) => { if (e.target.id === 'theme') { state.theme = e.target.value; render(); } });
+  render();
+})();
+</script>
+</body>
+</html>

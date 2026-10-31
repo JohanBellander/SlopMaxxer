@@ -1,0 +1,65 @@
+/* SlopMaxxer design tokens. Phosphor is the chosen theme; the others are kept as alternates via [data-theme]. */
+:root,
+[data-theme="phosphor"] {
+  --bg: #050A07;
+  --panel: #0B1410;
+  --panel-2: #10201A;
+  --log-bg: #030604;
+  --border: #1A3A2B;
+  --txt: #B8F5CF;
+  --muted: #78B892;
+  --faint: #1F4231;
+
+  --now: #FFE066;      /* "now" marker, pace marker, countdowns */
+  --ok: #3DFF8C;       /* on pace / hold, weekly refill marker */
+  --warn: #FFE066;     /* pick it up, WARN log level */
+  --hot: #A98BFF;      /* slow down, RANK log level */
+  --pink: #FF6BB5;     /* use it or lose it, "Speed up." verdict */
+  --red: #FF5C5C;      /* cooked, 429 */
+  --idle: #8FB8A0;     /* window asleep */
+
+  --prompt: #3DFF8C;   /* the ❯ glyph */
+  --accent: #3DFF8C;   /* wordmark "maxxer", score */
+  --btn-bg: #3DFF8C;
+  --btn-fg: #050A07;
+
+  --claude: #FFB86B;   /* provider: Claude (amber) */
+  --codex: #6BE3FF;    /* provider: Codex (cyan) */
+
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: 'Geist', system-ui, sans-serif;
+  --radius-card: 14px;
+  --radius-chip: 6px;
+  --radius-btn: 10px;
+}
+
+[data-theme="tokyo"] {
+  --bg: #13131A; --panel: #1A1B26; --panel-2: #1F2335; --log-bg: #0E0E14; --border: #292E42;
+  --txt: #C0CAF5; --muted: #9AA5CE; --faint: #3B4261;
+  --now: #E0AF68; --ok: #9ECE6A; --warn: #E0AF68; --hot: #BB9AF7; --pink: #FF79C6; --red: #F7768E; --idle: #A9B1D6;
+  --prompt: #9ECE6A; --accent: #BB9AF7; --btn-bg: #9ECE6A; --btn-fg: #13131A; --claude: #FF9E64; --codex: #7AA2F7;
+}
+[data-theme="gruvbox"] {
+  --bg: #1D2021; --panel: #282828; --panel-2: #32302F; --log-bg: #171A1B; --border: #3C3836;
+  --txt: #EBDBB2; --muted: #A89984; --faint: #504945;
+  --now: #FABD2F; --ok: #B8BB26; --warn: #FABD2F; --hot: #8EC07C; --pink: #D3869B; --red: #FB4934; --idle: #BDAE93;
+  --prompt: #B8BB26; --accent: #D3869B; --btn-bg: #FABD2F; --btn-fg: #1D2021; --claude: #FE8019; --codex: #83A598;
+}
+[data-theme="paper"] {
+  --bg: #F7F5F0; --panel: #FFFFFF; --panel-2: #F0EDE6; --log-bg: #FBFAF7; --border: #E2DDD3;
+  --txt: #1F1D1A; --muted: #6B665C; --faint: #DAD4C8;
+  --now: #A86A12; --ok: #2F7A4F; --warn: #A86A12; --hot: #6B46C1; --pink: #C2185B; --red: #C53030; --idle: #6B665C;
+  --prompt: #2F7A4F; --accent: #6B46C1; --btn-bg: #1F1D1A; --btn-fg: #F7F5F0; --claude: #C8541F; --codex: #2B6CB0;
+}
+[data-theme="synth"] {
+  --bg: #0D0221; --panel: #160A33; --panel-2: #1F0F45; --log-bg: #090118; --border: #2E1A5E;
+  --txt: #EDE7FF; --muted: #A99BD6; --faint: #3A2770;
+  --now: #FFE45E; --ok: #2DE2A6; --warn: #FFE45E; --hot: #8C7BFF; --pink: #FF3DB8; --red: #FF4D6D; --idle: #B4A8DD;
+  --prompt: #2DE2A6; --accent: #FF3DB8; --btn-bg: #FF3DB8; --btn-fg: #0D0221; --claude: #FF8A3D; --codex: #3DC2FF;
+}
+[data-theme="graphite"] {
+  --bg: #0B0B0C; --panel: #141416; --panel-2: #1C1C1F; --log-bg: #08080A; --border: #26262A;
+  --txt: #EDEDED; --muted: #9A9AA0; --faint: #323237;
+  --now: #EDEDED; --ok: #9A9AA0; --warn: #D4FF3A; --hot: #FF9F6B; --pink: #D4FF3A; --red: #FF5A5A; --idle: #9A9AA0;
+  --prompt: #D4FF3A; --accent: #D4FF3A; --btn-bg: #D4FF3A; --btn-fg: #0B0B0C; --claude: #E8A87C; --codex: #8FB3E8;
+}
