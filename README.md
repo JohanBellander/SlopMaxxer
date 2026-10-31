@@ -11,6 +11,33 @@
 **One local dashboard for every Claude Code and Codex account on your machine.**<br>
 It tells you whether to speed up or slow down, and where your next task should go.
 
+</div>
+
+## quick start
+
+Needs **Node.js 20+** (including npm/npx) and an existing Claude Code or Codex login.
+Run this from your home folder or another folder outside the SlopMaxxer source checkout:
+
+```sh
+npx slopmaxxer@latest
+```
+
+Accept the installation prompt if shown. Your browser opens automatically, and the terminal
+prints a clickable dashboard link. If port 4747 is occupied, SlopMaxxer picks a free port.
+**Keep the terminal open. Press Ctrl+C to stop.** No clone, global install, or npm account needed.
+
+**Using Safe-chain?** If it blocks a freshly published release because of its minimum package age,
+you can wait for that age requirement or skip the age check for this invocation:
+
+```sh
+npx --safe-chain-skip-minimum-package-age slopmaxxer@latest
+```
+
+**Already inside the source checkout?** Use `npm start` there. To test the published npm package,
+run `cd ~` first, then the `npx` command above. This avoids npm selecting the local source package.
+
+<div align="center">
+
 ![node](https://img.shields.io/badge/node-%E2%89%A520-3DFF8C?style=flat-square&labelColor=050A07)
 ![deps](https://img.shields.io/badge/dependencies-0-3DFF8C?style=flat-square&labelColor=050A07)
 ![local](https://img.shields.io/badge/runs-127.0.0.1%20only-6BE3FF?style=flat-square&labelColor=050A07)
@@ -69,20 +96,7 @@ No setup. No accounts to add. No API keys. It just reads what's already there.
 
 ---
 
-## 🚀 quick start
-
-Needs **Node 20+**, including npm/npx, and an existing Claude Code or Codex login.
-
-**Release status:** the npm package is prepared but not published yet. These `npx` commands
-become available after the first npm release. Until then, use the source instructions below.
-
-```sh
-npx slopmaxxer@latest
-```
-
-Accept npm's installation prompt on the first run. SlopMaxxer finds your logins and opens
-http://127.0.0.1:4747. Keep the terminal open; press **Ctrl+C** to stop.
-No clone, global installation, or API keys required after release.
+## commands
 
 | command | does |
 |---|---|
@@ -98,7 +112,7 @@ Startup prints a clickable browser link. If the default port is occupied, SlopMa
 uses a free port and prints its URL. Keep the terminal open while using the dashboard.
 Use `--port 4748` to require a specific port, or `--no-open` to open the printed link yourself.
 No accounts found? Run `claude` or `codex login` first.
-`@latest` requests the latest release; `@0.1.0` selects a specific version.
+`@latest` requests the latest release; `@0.1.1` selects a specific version.
 To install once, use `npm install -g slopmaxxer`, then run `slopmaxxer`.
 
 ### run from source
@@ -108,7 +122,7 @@ There are no dependencies to install:
 ```sh
 git clone https://github.com/JohanBellander/SlopMaxxer.git
 cd SlopMaxxer
-node bin/slopmaxxer.mjs            # dashboard → http://127.0.0.1:4747 (opens your browser)
+npm start                        # opens the dashboard and prints its URL
 ```
 
 | command | does |
