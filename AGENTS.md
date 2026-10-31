@@ -1,63 +1,71 @@
 # SlopMaxxer
 
-Local dashboard for Claude Code and Codex account usage and pacing.
+Local web dashboard (plus CLI) that finds every Claude Code and Codex login on the machine, reads each
+account's 5-hour and weekly limits, and turns them into one verdict (speed up / hold / slow down) and a
+"next task →" account to route work to. Runs on 127.0.0.1 only, read-only on credentials. See `README.md`
+for the user-facing feature list and verdict thresholds.
 
 ## Stack
-- Node.js 20+ with native ES modules.
-- Zero runtime dependencies; use Node built-ins.
-- Browser UI uses plain HTML, CSS, and JavaScript.
-- Tests use the built-in Node test runner.
-- No build step or formatter is configured.
+- Node ≥ 20, plain ES modules (`"type": "module"`), **zero dependencies** — no `npm install`, no build step,
+  no bundler. Keep it that way: don't add packages without asking.
+- Tests: built-in `node:test` + `node:assert/strict`.
+- UI: static HTML/CSS/JS in `public/`, served by a tiny `node:http` server.
 
 ## Layout
-- `bin/slopmaxxer.mjs`: executable CLI.
-- `src/discover.mjs`: account discovery and configuration.
-- `src/providers/`: live usage reads.
-- `src/collect.mjs`: polling and persistence.
-- `src/backfill.mjs`: historical usage import.
-- `src/snapshot.mjs`: dashboard snapshot assembly.
-- `src/server.mjs`: localhost HTTP server.
-- `public/`: shipped dashboard assets.
-- `test/`: automated tests.
-- `design/`: design references, not runtime assets.
-- `docs/`: screenshots and maintenance documentation.
+```
+bin/slopmaxxer.mjs      CLI: serve (default) · status [--json] · accounts; flags --port --no-open --demo
+src/discover.mjs        finds installs (~/.claude*, ~/.codex*, CLAUDE_CONFIG_DIR, CODEX_HOME, ~/.slopmaxxer/config.json)
+src/providers/          claude.mjs · codex.mjs — live limit reads via the CLIs' own (undocumented) usage endpoints
+src/collect.mjs         polls (~120s), dedupes logins, stores readings
+src/backfill.mjs        7-day history from Codex session logs (exact) and Claude transcripts (estimated)
+src/snapshot.mjs        builds the SlopSnapshot the UI eats + the event log diff
+src/server.mjs          127.0.0.1 server: /api/slop (index.html), /api/snapshot (classic.html + CLI), static files
+src/pace.mjs            CLI-side verdicts and formatting
+src/mock.mjs, demo.mjs  reference mock (6 accounts, all states) and --demo mode
+public/slop.js          the brain: statuses, verdict, routing, glyph meters, CFG thresholds — shared by UI AND tests
+public/index.html       Phosphor dashboard (current)   public/classic.html  old dashboard at /classic
+public/tokens.css       design tokens; 6 themes via [data-theme]
+design/                 Claude Design handoff: HANDOFF.md, types.ts (data model), reference/ prototype
+docs/                   README screenshots
+```
 
 ## Commands
-- `npm start`: start dashboard and open browser.
-- `npm run status`: terminal summary using real accounts.
-- `npm test`: run automated tests.
-- `npm run test:package`: verify the packed, installed CLI and demo dashboard.
-- `node bin/slopmaxxer.mjs --demo --no-open`: demo server.
-- `node .agents/sync-skills.mjs`: sync repository skills.
-- `node .agents/sync-skills.mjs --check`: check skill parity.
+| Task | Command |
+|---|---|
+| Tests | `npm test` (= `node --test test/`) |
+| Installed package smoke test | `npm run test:package` |
+| Syntax check | `node --check <file>` |
+| Dashboard with fake data (safe, no real accounts) | `node bin/slopmaxxer.mjs --demo --port 4748 --no-open` |
+| Dashboard with real accounts | `node bin/slopmaxxer.mjs` → http://127.0.0.1:4747 |
+| Terminal view / JSON | `node bin/slopmaxxer.mjs status` / `status --json` |
+| Which logins were found | `node bin/slopmaxxer.mjs accounts` |
+
+Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CONFIG_DIR`, `CODEX_HOME`.
 
 ## Conventions
-- Keep native ESM and existing two-space indentation.
-- Resolve shipped assets relative to modules, not the working directory.
-- Keep runtime dependencies at zero unless explicitly justified.
-- Preserve existing command names and configuration behavior.
-- Use deterministic fake data for offline dashboard checks.
-- Test CLI failures as well as successful invocations.
+- `public/slop.js` is pure and imported by both the browser and `test/`; keep it free of Node and DOM APIs.
+  Behaviour thresholds belong in its `CFG` block, not scattered in the UI.
+- `design/types.ts` is the contract for `/api/slop`; `design/reference/` is the source of truth for layout and copy.
+  If you change the snapshot shape, update `types.ts`, `src/snapshot.mjs`, the UI and tests together.
+- The mock in `src/mock.mjs` reproduces the handoff numbers (`test/slop.test.mjs` asserts score 85, "pace keeper",
+  etc.). Changing the mock or the logic means updating those expectations deliberately, not to make tests pass.
+- Voice in UI copy: terse, terminal-flavoured, a little meme-y (see design/HANDOFF.md).
+- Small commits, conventional-ish subjects; README screenshots live in `docs/`.
 
-## Data and security
-- Bind the server to `127.0.0.1`.
-- Never rewrite or refresh provider credentials.
-- Never log credential contents.
-- Store user state under `~/.slopmaxxer/`.
-- `SLOPMAXXER_HOME` overrides that state directory.
-- Provider usage endpoints are unofficial and may change.
-- Prefer demo mode when checking presentation or packaging.
+## Gotchas
+- **Never write to credential files** (`.credentials.json`, `auth.json`) or refresh tokens — read-only is a core promise.
+  Tokens must only ever be sent to Anthropic/OpenAI.
+- The server must keep binding to `127.0.0.1`, never `0.0.0.0`.
+- Running without `--demo` reads your real logins and calls live usage endpoints; prefer `--demo` while developing.
+  Real state is written to `~/.slopmaxxer/` (history.jsonl, events.jsonl, state.json) — don't commit or delete it.
+- The usage endpoints aren't public APIs and can change; on failure an account keeps its last reading, flagged stale.
+- Use a non-default port (e.g. 4748) for dev so you don't collide with a running instance on 4747.
 
 ## Distribution
-- The npm executable is `bin/slopmaxxer.mjs`.
-- Ship all runtime modules and dashboard assets together.
-- Exclude tests, design references, and agent configuration from npm.
-- Check the packed artifact from outside the checkout before release.
-- See `docs/releasing.md` when publishing a release.
-- Node.js is required on the user's machine.
-- Do not publish or push unless the user requests it.
-- Never merge pull requests.
-- Never commit to the default branch.
+- The npm executable is `bin/slopmaxxer.mjs`; resolve assets relative to modules, not the working directory.
+- The package allowlist ships `bin/`, `src/`, and `public/` plus npm's automatic metadata and README.
+- `npm run test:package` checks the packed, installed command and demo dashboard outside the checkout.
+- See `docs/releasing.md` when publishing a release; publish only when requested.
 
 ## Agent setup
 This repo is worked on by both Claude Code and Codex; keep them in sync.

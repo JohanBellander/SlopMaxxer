@@ -1,5 +1,7 @@
-prefix_rule(pattern=["npm", "test"], decision="allow", justification="Run tests")
-prefix_rule(pattern=["node", "--test"], decision="allow", justification="Run tests")
-prefix_rule(pattern=["node", "--check"], decision="allow", justification="Check syntax")
-prefix_rule(pattern=["node", ".agents/sync-skills.mjs"], decision="allow", justification="Synchronize shared skills")
-prefix_rule(pattern=["git", "diff"], decision="allow", justification="Review changes")
+# Keep identical to permissions.allow in .claude/settings.json.
+prefix_rule(pattern=["npm", "test"], decision="allow", justification="Run the test suite")
+prefix_rule(pattern=["node", "--test"], decision="allow", justification="Run the test suite")
+prefix_rule(pattern=["node", "--check"], decision="allow", justification="Syntax check")
+prefix_rule(pattern=["node", "bin/slopmaxxer.mjs", "--demo"], decision="allow", justification="Dashboard with fake data")
+prefix_rule(pattern=["node", "bin/slopmaxxer.mjs", "status"], decision="allow", justification="Read-only terminal view")
+prefix_rule(pattern=["node", "bin/slopmaxxer.mjs", "accounts"], decision="allow", justification="List discovered logins")
