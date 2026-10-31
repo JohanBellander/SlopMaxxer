@@ -31,6 +31,22 @@ const TIER_NAMES = {
   default_claude_pro: 'Pro',
 };
 
+// Team/Enterprise seats report a Max-style rate-limit tier too (a Team premium seat has Max 5x
+// limits), so the subscription type decides the name and the tier only adds the multiplier.
+const ORG_PLANS = { team: 'Team', enterprise: 'Enterprise' };
+
+export function planOf(creds) {
+  if (!creds) return { plan: null, planSlug: null };
+  const tier = TIER_NAMES[creds.rateLimitTier];
+  const org = ORG_PLANS[creds.subscriptionType];
+  if (org) {
+    const mult = tier?.match(/\d+x/)?.[0];
+    return { plan: mult ? `${org} · ${mult} limits` : org, planSlug: org.toLowerCase() + (mult ? '-' + mult : '') };
+  }
+  const plan = tier || creds.subscriptionType || creds.rateLimitTier || null;
+  return { plan, planSlug: plan ? plan.toLowerCase().replace(/\s+/g, '-') : null };
+}
+
 function toWindow(kind, label, w, windowSeconds) {
   if (!w) return null;
   const resetsAt = w.resets_at ? Date.parse(w.resets_at) : null;
@@ -52,7 +68,7 @@ export async function fetchClaude({ dir }) {
     provider: 'claude',
     dir,
     ...id,
-    plan: creds ? TIER_NAMES[creds.rateLimitTier] || creds.subscriptionType || creds.rateLimitTier : null,
+    ...planOf(creds),
   };
   if (!creds?.accessToken) return { ...base, error: 'Not logged in (no OAuth token)' };
   if (creds.expiresAt && creds.expiresAt < Date.now()) {

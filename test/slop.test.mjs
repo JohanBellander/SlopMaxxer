@@ -106,3 +106,13 @@ test('event log describes status changes and rank changes', () => {
   assert.match(ev[0].msg, /codex\/plus work hit the wall/);
   assert.equal(ev[1].msg, 'ranked up: vibe coder → pace keeper');
 });
+
+test('team seats are named as team plans, not as personal Max/Pro plans', async () => {
+  const { planOf: claudePlan } = await import('../src/providers/claude.mjs');
+  const { planOf: codexPlan } = await import('../src/providers/codex.mjs');
+  assert.deepEqual(claudePlan({ subscriptionType: 'team', rateLimitTier: 'default_claude_max_5x' }), { plan: 'Team · 5x limits', planSlug: 'team-5x' });
+  assert.deepEqual(claudePlan({ subscriptionType: 'team', rateLimitTier: 'default_claude_pro' }), { plan: 'Team', planSlug: 'team' });
+  assert.deepEqual(claudePlan({ subscriptionType: 'max', rateLimitTier: 'default_claude_max_20x' }), { plan: 'Max 20x', planSlug: 'max-20x' });
+  assert.deepEqual(codexPlan('self_serve_business_prolite'), { plan: 'Business · Pro Lite seat', planSlug: 'business' });
+  assert.deepEqual(codexPlan('pro'), { plan: 'Pro', planSlug: 'pro' });
+});

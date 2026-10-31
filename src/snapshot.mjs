@@ -55,7 +55,7 @@ export function toSlopAccount(a, now = Date.now()) {
     id: a.id,
     provider: a.provider,
     plan: a.plan || 'unknown plan',
-    planSlug: slugify(a.plan),
+    planSlug: a.planSlug || slugify(a.plan),
     label: a.nickname || domain || path.basename(a.dir || ''),
     email: a.email || a.dir,
     fiveHour: a.windows ? toWindow(by('session')) : undefined,

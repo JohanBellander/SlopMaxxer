@@ -24,10 +24,19 @@ const PLAN_NAMES = {
   prolite: 'Pro Lite',
   team: 'Team',
   business: 'Business',
-  self_serve_business_prolite: 'Business Pro Lite',
+  self_serve_business: 'Business',
+  self_serve_business_prolite: 'Business · Pro Lite seat',
   enterprise: 'Enterprise',
   free: 'Free',
 };
+
+// ChatGPT Business is the old Team plan; its plan_type carries a seat variant after the prefix.
+export function planOf(type) {
+  if (!type) return { plan: null, planSlug: null };
+  const plan = PLAN_NAMES[type] || type;
+  const business = /^(self_serve_)?(business|team)/.test(type);
+  return { plan, planSlug: business ? 'business' : plan.toLowerCase().replace(/\s+/g, '-') };
+}
 
 function labelFor(seconds) {
   if (!seconds) return 'Window';
@@ -84,7 +93,7 @@ export async function fetchCodex({ dir }) {
     name: claims.name || null,
     org: null,
     accountKey: auth?.tokens?.account_id || oa.chatgpt_account_id || null,
-    plan: PLAN_NAMES[oa.chatgpt_plan_type] || oa.chatgpt_plan_type || null,
+    ...planOf(oa.chatgpt_plan_type),
   };
 
   if (auth?.auth_mode !== 'chatgpt' || !auth?.tokens?.access_token) {
@@ -107,7 +116,7 @@ export async function fetchCodex({ dir }) {
       return {
         ...base,
         email: u.email || base.email,
-        plan: PLAN_NAMES[u.plan_type] || u.plan_type || base.plan,
+        ...(u.plan_type ? planOf(u.plan_type) : {}),
         windows: [toWindow(rl.secondary_window), toWindow(rl.primary_window)]
           .filter(Boolean)
           .sort((a, b) => a.windowSeconds - b.windowSeconds),
