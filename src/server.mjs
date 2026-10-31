@@ -12,7 +12,7 @@ import { buildSlopSnapshot } from './snapshot.mjs';
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 
-export function startServer({ port = 4747, demo = false, onReady } = {}) {
+export function startServer({ port = 4747, demo = false, fallbackPort = false, onReady, onError } = {}) {
   const config = loadConfig();
   const pollMs = Math.max(60_000, (config.pollSeconds || 120) * 1000);
   let snapshot = null; // classic shape: /api/snapshot (classic.html, CLI)
@@ -40,7 +40,8 @@ export function startServer({ port = 4747, demo = false, onReady } = {}) {
     return inflight;
   };
   refresh();
-  setInterval(refresh, pollMs).unref?.();
+  const timer = setInterval(refresh, pollMs);
+  timer.unref?.();
 
   const json = (res, body) => {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -68,6 +69,19 @@ export function startServer({ port = 4747, demo = false, onReady } = {}) {
     fs.createReadStream(full).pipe(res);
   });
 
-  server.listen(port, '127.0.0.1', () => onReady?.(`http://127.0.0.1:${port}`));
+  let retried = false;
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE' && fallbackPort && !retried) {
+      retried = true;
+      server.listen(0, '127.0.0.1');
+      return;
+    }
+    clearInterval(timer);
+    if (onError) onError(error);
+    else throw error;
+  });
+  server.once('close', () => clearInterval(timer));
+  server.once('listening', () => onReady?.(`http://127.0.0.1:${server.address().port}`));
+  server.listen(port, '127.0.0.1');
   return server;
 }

@@ -94,7 +94,9 @@ No clone, global installation, or API keys required after release.
 | `npx slopmaxxer@latest --help` | show help |
 | `npx slopmaxxer@latest --version` | print the version |
 
-Use `--port 4748` if the default port is occupied, or `--no-open` to open the browser yourself.
+Startup prints a clickable browser link. If the default port is occupied, SlopMaxxer automatically
+uses a free port and prints its URL. Keep the terminal open while using the dashboard.
+Use `--port 4748` to require a specific port, or `--no-open` to open the printed link yourself.
 No accounts found? Run `claude` or `codex login` first.
 `@latest` requests the latest release; `@0.1.0` selects a specific version.
 To install once, use `npm install -g slopmaxxer`, then run `slopmaxxer`.
