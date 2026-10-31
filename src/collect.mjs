@@ -7,6 +7,7 @@ import { discoverInstalls, loadConfig, SLOP_HOME } from './discover.mjs';
 import { fetchClaude } from './providers/claude.mjs';
 import { fetchCodex } from './providers/codex.mjs';
 import { analyzeAccount, pickNext } from './pace.mjs';
+import { dailyHistory } from './backfill.mjs';
 
 const FETCHERS = { claude: fetchClaude, codex: fetchCodex };
 const HISTORY_FILE = path.join(SLOP_HOME, 'history.jsonl');
@@ -47,6 +48,13 @@ function observedRate(id, w, now) {
   return Math.max(0, (last.used - first.used) / spanH);
 }
 
+/** Our own weekly readings for an account, for the 7-day history. */
+function ownWeeklyReadings(id) {
+  return loadHistory()
+    .filter((s) => s.id === id && s.kind === 'weekly')
+    .map((s) => ({ t: s.t, used: s.used, resetsAt: s.resetsAt }));
+}
+
 /** Last 7 days of weekly usage samples, for sparklines. */
 function sparkline(id) {
   return loadHistory()
@@ -73,6 +81,15 @@ function fromLastSamples(a, now) {
   }));
   const at = new Date(Math.max(...kinds.map((s) => s.t))).toTimeString().slice(0, 5);
   return { ...a, windows, error: undefined, stale: true, note: `${a.error}; showing the last reading from ${at}` };
+}
+
+function safeDaily(a, now) {
+  try {
+    return dailyHistory(a, ownWeeklyReadings(a.id), now);
+  } catch (e) {
+    console.error('[slopmaxxer] reading history from disk failed:', e.message);
+    return null;
+  }
 }
 
 const accountId = (a) =>
@@ -108,6 +125,7 @@ export async function collect() {
       ...publicFields,
       nickname: nicknames[`${a.provider}:${a.email}`] || nicknames[a.id] || nicknames[a.email] || null,
       spark: sparkline(a.id),
+      daily: safeDaily(a, now),
     };
   });
 

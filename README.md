@@ -96,3 +96,11 @@ next task should go. The **Slop-o-meter** averages usage-vs-pace across accounts
 ```
 
 History used for burn rates and sparklines is kept for 8 days in `~/.slopmaxxer/history.jsonl`.
+
+The 7-day graph also reads history that is already on disk, so it isn't empty on day one:
+
+- **Codex:** exact. Every session log in `<CODEX_HOME>/sessions` records the limit status with a timestamp.
+- **Claude:** estimated (shown with `~`). Transcripts in `<CLAUDE_CONFIG_DIR>/projects` record tokens, not the % of
+  your limit, so tokens are weighted by model price and calibrated against the live weekly % of the current window.
+  Usage outside Claude Code on this machine (claude.ai, other computers) isn't in the transcripts, so it shifts the estimate.
+  Once SlopMaxxer has its own readings for a period, those replace the estimate.

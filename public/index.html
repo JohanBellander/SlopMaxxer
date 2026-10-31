@@ -67,6 +67,9 @@
   .stats span { padding: 2px 8px; border-radius: var(--radius-chip); background: var(--panel-2); white-space: nowrap; }
   .spark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
   .spark .b { flex: 1; white-space: pre; font-size: 15px; line-height: 1.05; }
+  .days { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12px; margin-top: -6px; }
+  .days .est b { color: var(--muted); font-style: italic; }
+  .days .src { flex-basis: 100%; color: var(--faint); color: color-mix(in srgb, var(--muted) 70%, transparent); }
   .loglines { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
   .logline { display: grid; grid-template-columns: 8ch 5ch minmax(0, 1fr); gap: 1ch; }
   .launch { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
@@ -142,6 +145,10 @@ function meterBlock(label, w, a) {
   return `<div class="meter">${both(` <span style="font-weight:700">${String(w.usedPct + '%').padStart(4)}</span> <span class="r-now">⟳ ${fmt.dur(w.remainingMin)}</span>`)}<div class="muted">        ╋ pace ${w.pacePct}% · <span class="${cls}">${note}</span></div></div>`;
 }
 
+// Day i of the 7-day history (0 = six days ago, 6 = today), as "sat 25".
+const dayName = (i) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 6 + i); return DAYS[d.getDay()] + ' ' + pad(d.getDate()); };
+const dayBreakdown = (a) => (a.dailyPct || []).map((v, i) => `${dayName(i)} ${a.dailyEstimated?.[i] ? '~' : ''}${v}%`).join(' · ');
+
 function details(a) {
   const w = a.week;
   const known = a.status !== 'unknown';
@@ -160,7 +167,8 @@ function details(a) {
       <div class="advice">${esc(S.advice(a, fmt))}</div>
       ${known ? meterBlock('5-hour', a.five, a) + meterBlock('weekly', w, a) : ''}
       ${stats}
-      <div class="spark"><span class="muted">last 7d</span><div class="b" role="img" aria-label="Daily usage over the last 7 days: ${(a.dailyPct || []).join(', ')} percent of the weekly cap" style="color:${pvar(a)}">${S.brailleSpark(a.dailyPct, 18, maxDay).map((r) => `<div>${r}</div>`).join('')}</div><span class="muted">${esc(a.email)}</span></div>
+      <div class="spark" title="${esc(dayBreakdown(a))}"><span class="muted">last 7d${(a.dailyEstimated || []).some(Boolean) ? ' <span class="t-warn">~est</span>' : ''}</span><div class="b" role="img" aria-label="Share of the weekly cap used per day, last 7 days: ${esc(dayBreakdown(a))}" style="color:${pvar(a)}">${S.brailleSpark(a.dailyPct, 18, maxDay).map((r) => `<div>${r}</div>`).join('')}</div><span class="muted">${esc(a.email)}</span></div>
+      <div class="days muted">${(a.dailyPct || []).map((v, i) => `<span${a.dailyEstimated?.[i] ? ' class="est"' : ''}>${dayName(i)} <b class="t-txt">${a.dailyEstimated?.[i] ? '~' : ''}${Math.round(v)}%</b></span>`).join('')}${a.historySource ? `<span class="src">from ${esc(a.historySource)}</span>` : ''}</div>
       ${a.launch ? `<div class="launch"><span class="muted">run it</span><code>${esc(a.launch)}</code><button class="btn-ghost" type="button" data-copy="${esc(a.launch)}">copy</button></div>` : ''}
       ${a.events.length ? `<div class="loglines">${a.events.slice(0, 5).map(logLine).join('')}</div>` : ''}
     </div>`;

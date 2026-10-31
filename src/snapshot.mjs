@@ -60,7 +60,9 @@ export function toSlopAccount(a, now = Date.now()) {
     email: a.email || a.dir,
     fiveHour: a.windows ? toWindow(by('session')) : undefined,
     weekly: toWindow(by('weekly')) || { active: false, usedPct: 0, resetsAt: null, burnPctPerHour: 0 },
-    dailyPct: dailyFromSamples(a.spark || [], now),
+    dailyPct: a.daily?.pct || dailyFromSamples(a.spark || [], now),
+    dailyEstimated: a.daily?.estimated || null,
+    historySource: a.daily?.source || null,
     // extras the design doesn't have, shown in the expanded row
     resetCredits: a.resetCredits ?? null,
     stale: !!a.stale,
