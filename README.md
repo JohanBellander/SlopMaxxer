@@ -267,7 +267,7 @@ node bin/slopmaxxer.mjs --demo --port 4748
 bin/slopmaxxer.mjs      CLI: serve · status · accounts
 src/discover.mjs        finds installs
 src/providers/          claude.mjs · codex.mjs (live reads)
-src/collect.mjs         polls, dedupes, stores readings
+src/collect.mjs         polls (on demand, while a dashboard is open), dedupes, stores readings
 src/backfill.mjs        history from session logs and transcripts
 src/snapshot.mjs        → the SlopSnapshot the UI eats, plus the event log
 src/server.mjs          127.0.0.1 server: /api/slop, /api/snapshot
