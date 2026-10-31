@@ -149,6 +149,13 @@ Like T3 Code, it picks up whatever is installed:
 - extra logins in sibling folders: `~/.claude-personal`, `~/.codex-work`, `~/.claude2`, …
 - anything you list in `~/.slopmaxxer/config.json`
 
+Claude usage readings are cached for five minutes in the state directory (`~/.slopmaxxer/claude-usage/`
+by default). Instances sharing that directory reuse readings and coordinate requests, including manual
+refreshes. HTTP 429 responses trigger exponential backoff from five minutes up to one hour; a longer
+`Retry-After` is honored. Cached readings show their timestamp and are not counted as new usage samples.
+Readings older than 12 hours are discarded. Local Claude transcripts still provide estimated history,
+not authoritative remaining limits. Restart older instances with the updated version to use this cache.
+
 **Got more accounts?** Log each one into its own folder and it shows up on the next poll:
 
 ```powershell
