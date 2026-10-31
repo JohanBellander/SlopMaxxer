@@ -76,7 +76,7 @@
   .launch code { padding: 2px 8px; border-radius: var(--radius-chip); background: var(--log-bg); border: 1px solid var(--border); overflow-wrap: anywhere; }
 
   .linkbtn { align-self: flex-start; min-height: 40px; padding: 0 4px; border: 0; background: transparent; color: var(--muted); }
-  .sched { border-radius: var(--radius-card); background: var(--panel); border: 1px solid var(--border); padding: 12px 16px; overflow-x: auto; }
+  .sched { border-radius: var(--radius-card); background: var(--panel); border: 1px solid var(--border); padding: 12px 16px; overflow: hidden; }
   .sched .inner { width: max-content; white-space: pre; font-size: 12px; }
   .sched .line { line-height: 1.85; }
 
@@ -235,7 +235,7 @@ function render() {
       <section class="verdict" aria-label="Verdict">
         <div class="muted"><span class="prompt">❯</span> slop verdict</div>
         <h1><span style="color:${tone(v.tone)}">${v.arrow} ${v.word}</span> <span class="why">${esc(v.why)}</span></h1>
-        ${vm.next ? `<div class="nexttask"><span class="label">Next task →</span><span class="slug" style="color:${pvar(vm.next)}">${esc(vm.next.slug)}</span><span class="muted">${esc(vm.next.label)}</span><button class="btn-primary" type="button" data-copy="${esc(vm.next.launch || vm.next.provider)}" title="copy the command that starts this account">↵ feed the slop</button><span class="toast" aria-live="polite">${esc(state.toast)}</span></div>` : ''}
+        ${vm.next ? `<div class="nexttask"><span class="label">Next task →</span><span class="slug" style="color:${pvar(vm.next)}">${esc(vm.next.slug)}</span><span class="muted">${esc(vm.next.label)}</span><span class="toast" aria-live="polite">${esc(state.toast)}</span></div>` : ''}
         ${vm.avoid.length ? `<div class="avoid">avoid: ${vm.avoid.map((a) => `<span><span style="color:${pvar(a)}">${esc(a.slug)}</span> ${esc(a.label)} <span style="color:${tone(a.tone)}">(${a.status === 'cooked' ? 'cooked till ' + backFmt(backAt(a)) : a.five.capInMin != null ? 'caps in ' + fmt.dur(a.five.capInMin) : 'running hot'})</span></span>`).join('')}</div>` : ''}
       </section>
 
@@ -256,7 +256,20 @@ function render() {
         </aside>
       </div>
     </div>`;
+  fitSched();
 }
+
+// The schedule is fixed-width text; shrink it to fit its box instead of scrolling.
+function fitSched() {
+  const box = document.querySelector('.sched');
+  const inner = box?.firstElementChild;
+  if (!inner) return;
+  inner.style.fontSize = '';
+  const avail = box.clientWidth - 32; // minus 16px padding each side
+  if (inner.scrollWidth > avail) inner.style.fontSize = (12 * avail / inner.scrollWidth) + 'px';
+}
+window.addEventListener('resize', fitSched);
+document.fonts?.ready.then(fitSched); // web font swaps in late and changes the text width
 
 async function load(force = false) {
   try {
