@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SlopMaxxer</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>❯</text></svg>">
+<link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%233DFF8C' d='M12 4h16l24 28-24 28H12l24-28Z'/%3E%3C/svg%3E">
 <!-- Web fonts are optional: offline it falls back to the system monospace / sans. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -107,6 +107,18 @@ import * as S from './slop.js';
 const THEMES = ['phosphor', 'tokyo', 'gruvbox', 'paper', 'synth', 'graphite'];
 const STALE_MS = 5 * 60_000;
 const state = { open: {}, sched: false, logAll: false, theme: localStorage.getItem('slop.theme') || 'phosphor', data: null, fetchedAt: 0, err: null, toast: '' };
+const favicon = document.getElementById('favicon');
+const faviconSvg = new DOMParser().parseFromString(decodeURIComponent(favicon.href.split(',')[1]), 'image/svg+xml');
+let faviconColor = '';
+function applyTheme() {
+  document.documentElement.dataset.theme = state.theme;
+  const color = getComputedStyle(document.documentElement).getPropertyValue('--prompt').trim();
+  if (color === faviconColor) return;
+  faviconColor = color;
+  faviconSvg.querySelector('path').setAttribute('fill', color);
+  favicon.href = `data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(faviconSvg))}`;
+}
+applyTheme();
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = (n) => String(n).padStart(2, '0');
@@ -175,7 +187,7 @@ function details(a) {
 }
 
 function render() {
-  document.documentElement.dataset.theme = state.theme;
+  applyTheme();
   const app = document.getElementById('app');
   const snap = state.data;
   if (!snap) {
