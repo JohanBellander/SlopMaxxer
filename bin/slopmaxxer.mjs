@@ -20,7 +20,7 @@ Commands:
 Options:
   --demo            Show sample accounts (serve)
   --no-open         Start without opening a browser (serve)
-  --port <number>   Listen on port 1–65535 (serve; default: 4747)
+  --port <number>   Require port 1–65535 (default: 4747 or a free port)
   --json            Print JSON (status)
   -h, --help        Show help
   -v, --version     Show version
@@ -113,14 +113,19 @@ switch (cmd) {
   case 'serve':
     startServer({
       port,
+      fallbackPort: !rest.includes('--port') && !process.env.PORT,
       demo: flag('demo'),
       onReady: (url) => {
-        console.log(`🍝 SlopMaxxer is watching your tokens at ${url}  (Ctrl+C to stop)`);
+        const link = process.stdout.isTTY
+          ? `\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`
+          : url;
+        console.log(`\nSlopMaxxer is ready\n\n  ${link}\n\nOpen the link in your browser (Ctrl+click in Windows Terminal).\nKeep this terminal open. Press Ctrl+C to stop.\n`);
         if (!flag('no-open')) openBrowser(url);
       },
-    }).on('error', (error) => fail(error.code === 'EADDRINUSE'
-      ? `Port ${port} is already in use. Try slopmaxxer --port ${port === 65535 ? 4747 : port + 1}.`
-      : `Could not start the dashboard: ${error.message}`));
+      onError: (error) => fail(error.code === 'EADDRINUSE'
+        ? `Port ${port} is already in use. Choose another port, for example:\n  npx slopmaxxer@latest --port ${port === 65535 ? 4747 : port + 1}\n`
+        : `Could not start the dashboard: ${error.message}`),
+    });
     break;
   default:
     console.log('usage: slopmaxxer [serve [--port 4747] [--no-open] [--demo] | status [--json] | accounts]');
