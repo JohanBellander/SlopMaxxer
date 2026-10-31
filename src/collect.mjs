@@ -54,6 +54,27 @@ function sparkline(id) {
     .map((s) => [s.t, s.used]);
 }
 
+/**
+ * When a live read fails (429, expired token, network), rebuild the windows from the last samples
+ * we stored for this account so the dashboard keeps showing something instead of going blank.
+ */
+function fromLastSamples(a, now) {
+  const latest = {};
+  for (const s of loadHistory()) if (s.id === a.id && (!latest[s.kind] || s.t > latest[s.kind].t)) latest[s.kind] = s;
+  const kinds = Object.values(latest).filter((s) => now - s.t < 12 * 3_600_000);
+  if (!kinds.some((s) => s.kind === 'weekly')) return null;
+  const windows = kinds.map((s) => ({
+    kind: s.kind,
+    label: s.kind === 'session' ? '5-hour' : 'Weekly',
+    usedPercent: s.used,
+    windowSeconds: s.kind === 'session' ? 5 * 3600 : 7 * 86400,
+    resetsAt: s.resetsAt && s.resetsAt > now ? s.resetsAt : null,
+    idle: !s.resetsAt || s.resetsAt <= now,
+  }));
+  const at = new Date(Math.max(...kinds.map((s) => s.t))).toTimeString().slice(0, 5);
+  return { ...a, windows, error: undefined, stale: true, note: `${a.error}; showing the last reading from ${at}` };
+}
+
 const accountId = (a) =>
   crypto.createHash('sha1').update(`${a.provider}:${a.accountKey || a.dir}`).digest('hex').slice(0, 10);
 
@@ -78,7 +99,7 @@ export async function collect() {
   }
 
   const nicknames = config.nicknames || {};
-  const accounts = [...byId.values()].map((a) => {
+  const accounts = [...byId.values()].map((a) => (a.error ? fromLastSamples(a, now) || a : a)).map((a) => {
     const rates = {};
     for (const w of a.windows || []) rates[w.kind] = observedRate(a.id, w, now);
     const analyzed = analyzeAccount(a, now, rates);

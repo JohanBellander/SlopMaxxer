@@ -20,6 +20,22 @@ node bin/slopmaxxer.mjs --demo     # dashboard with fake accounts showing every 
 npm link                           # optional: get a global `slopmaxxer` command
 ```
 
+## The dashboard
+
+The UI is the **Phosphor** design from Claude Design (handoff in `design/`):
+
+- **Verdict:** speed up / hold / slow down across all accounts, and how many points you'd leave on the table.
+- **Next task →** the account your next task should go to. "↵ feed the slop" copies the command that starts it.
+- **Avoid:** accounts that are cooked or about to cap.
+- **Account rows,** sorted by priority. Each one expands to show its 5-hour and weekly meters (`╋` is the pace line,
+  the dim part is where you'll land at reset), burn vs. needed rate, banked resets (Codex), a 7-day sparkline and its log lines.
+- **Refill schedule:** every 5h (`○`) and weekly (`◆`) refill on one 7-day strip.
+- **events.log:** status changes, 429s, refills and rank changes, kept in `~/.slopmaxxer/events.jsonl`.
+- **Themes:** phosphor, tokyo, gruvbox, paper, synth and graphite.
+
+If a live read fails (a 429, an expired token), the account keeps showing its last reading, marked as stale.
+The previous dashboard is still available at `/classic`.
+
 ## How it finds accounts
 
 Like T3 Code, it picks up whatever is installed:
