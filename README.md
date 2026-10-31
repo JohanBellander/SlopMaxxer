@@ -4,7 +4,7 @@
  ❯ slopmaxxer
 ```
 
-# 🍝 SlopMaxxer
+# SlopMaxxer
 
 ### every token unused is a token wasted
 
