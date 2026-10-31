@@ -34,7 +34,7 @@ On Monday you're rate-limited on one, and on Sunday another resets with 70% unus
 ## the fix
 
 ```sh
-node bin/slopmaxxer.mjs
+npx slopmaxxer@latest
 ```
 
 SlopMaxxer finds every login on your machine, reads the limits, and turns them into one verdict:
@@ -71,7 +71,37 @@ No setup. No accounts to add. No API keys. It just reads what's already there.
 
 ## 🚀 quick start
 
-Needs **Node 20+**. That's it. No `npm install`, there's nothing to install.
+Needs **Node 20+**, including npm/npx, and an existing Claude Code or Codex login.
+
+**Release status:** the npm package is prepared but not published yet. These `npx` commands
+become available after the first npm release. Until then, use the source instructions below.
+
+```sh
+npx slopmaxxer@latest
+```
+
+Accept npm's installation prompt on the first run. SlopMaxxer finds your logins and opens
+http://127.0.0.1:4747. Keep the terminal open; press **Ctrl+C** to stop.
+No clone, global installation, or API keys required after release.
+
+| command | does |
+|---|---|
+| `npx slopmaxxer@latest` | open the dashboard |
+| `npx slopmaxxer@latest --demo` | try sample accounts without logging in |
+| `npx slopmaxxer@latest status` | terminal summary |
+| `npx slopmaxxer@latest status --json` | JSON for scripts |
+| `npx slopmaxxer@latest accounts` | list discovered logins |
+| `npx slopmaxxer@latest --help` | show help |
+| `npx slopmaxxer@latest --version` | print the version |
+
+Use `--port 4748` if the default port is occupied, or `--no-open` to open the browser yourself.
+No accounts found? Run `claude` or `codex login` first.
+`@latest` requests the latest release; `@0.1.0` selects a specific version.
+To install once, use `npm install -g slopmaxxer`, then run `slopmaxxer`.
+
+### run from source
+
+There are no dependencies to install:
 
 ```sh
 git clone https://github.com/JohanBellander/SlopMaxxer.git
@@ -89,6 +119,8 @@ node bin/slopmaxxer.mjs            # dashboard → http://127.0.0.1:4747 (opens 
 | `npm link` | get a global `slopmaxxer` command |
 
 Flags: `--port 4747`, `--no-open`.
+
+Maintainers: see [the release checklist](docs/releasing.md).
 
 ---
 

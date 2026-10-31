@@ -26,6 +26,7 @@ Local dashboard for Claude Code and Codex account usage and pacing.
 - `npm start`: start dashboard and open browser.
 - `npm run status`: terminal summary using real accounts.
 - `npm test`: run automated tests.
+- `npm run test:package`: verify the packed, installed CLI and demo dashboard.
 - `node bin/slopmaxxer.mjs --demo --no-open`: demo server.
 - `node .agents/sync-skills.mjs`: sync repository skills.
 - `node .agents/sync-skills.mjs --check`: check skill parity.
@@ -52,6 +53,7 @@ Local dashboard for Claude Code and Codex account usage and pacing.
 - Ship all runtime modules and dashboard assets together.
 - Exclude tests, design references, and agent configuration from npm.
 - Check the packed artifact from outside the checkout before release.
+- See `docs/releasing.md` when publishing a release.
 - Node.js is required on the user's machine.
 - Do not publish or push unless the user requests it.
 - Never merge pull requests.
