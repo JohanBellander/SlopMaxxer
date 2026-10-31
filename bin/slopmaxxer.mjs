@@ -8,7 +8,8 @@ import { discoverInstalls } from '../src/discover.mjs';
 import { VERDICTS, fmtDuration } from '../src/pace.mjs';
 import { startServer } from '../src/server.mjs';
 
-const [cmd = 'serve', ...rest] = process.argv.slice(2);
+let [cmd = 'serve', ...rest] = process.argv.slice(2);
+if (cmd.startsWith('--')) [cmd, rest] = ['serve', [cmd, ...rest]];
 const flag = (name) => rest.includes(`--${name}`);
 const opt = (name, dflt) => {
   const i = rest.indexOf(`--${name}`);
@@ -66,6 +67,7 @@ switch (cmd) {
   case 'serve':
     startServer({
       port: Number(opt('port', process.env.PORT || 4747)),
+      demo: flag('demo'),
       onReady: (url) => {
         console.log(`🍝 SlopMaxxer is watching your tokens at ${url}  (Ctrl+C to stop)`);
         if (!flag('no-open')) openBrowser(url);
@@ -73,5 +75,5 @@ switch (cmd) {
     });
     break;
   default:
-    console.log('usage: slopmaxxer [serve [--port 4747] [--no-open] | status [--json] | accounts]');
+    console.log('usage: slopmaxxer [serve [--port 4747] [--no-open] [--demo] | status [--json] | accounts]');
 }

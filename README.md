@@ -16,6 +16,7 @@ Needs Node 20+. No dependencies.
 node bin/slopmaxxer.mjs            # dashboard at http://127.0.0.1:4747 (opens your browser)
 node bin/slopmaxxer.mjs status     # one-shot terminal view
 node bin/slopmaxxer.mjs accounts   # which installs were found
+node bin/slopmaxxer.mjs --demo     # dashboard with fake accounts showing every state
 npm link                           # optional: get a global `slopmaxxer` command
 ```
 
@@ -39,6 +40,11 @@ The same login found in two dirs shows up once.
 
 These are the same calls the official CLIs make. They aren't public APIs, so they may change.
 Tokens are **never refreshed or rewritten** by SlopMaxxer, which means it can't break your CLI logins.
+
+## Resets
+
+- **Refills:** every window shows a live countdown, and the refill timeline shows all of them on one 7-day axis.
+- **Banked resets:** Codex sometimes grants reset credits that clear a used-up limit instantly. SlopMaxxer shows how many each Codex account has (it also shows 0, so you know it checked). Claude has no banked resets.
 
 ## The verdicts
 

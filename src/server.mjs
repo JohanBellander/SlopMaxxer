@@ -5,16 +5,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect } from './collect.mjs';
 import { loadConfig } from './discover.mjs';
+import { demoSnapshot } from './demo.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
-export function startServer({ port = 4747, onReady } = {}) {
+export function startServer({ port = 4747, demo = false, onReady } = {}) {
   const config = loadConfig();
   const pollMs = Math.max(60_000, (config.pollSeconds || 120) * 1000);
   let snapshot = null;
   let inflight = null;
 
   const refresh = () => {
+    if (demo) return Promise.resolve((snapshot = demoSnapshot()));
     inflight ??= collect()
       .then((s) => (snapshot = s))
       .catch((e) => console.error('[slopmaxxer] poll failed:', e.message))
