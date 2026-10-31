@@ -4,6 +4,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { SLOP_HOME } from '../discover.mjs';
+import { cachedClaudeUsage } from '../claude-cache.mjs';
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 
@@ -75,16 +77,21 @@ export async function fetchClaude({ dir }) {
     return { ...base, error: 'Token expired — open Claude Code once and it refreshes itself', stale: true };
   }
 
-  const res = await fetch(USAGE_URL, {
+  const reading = await cachedClaudeUsage({
+    home: SLOP_HOME,
+    key: id.accountKey || creds.accessToken,
+    request: () => fetch(USAGE_URL, {
     headers: {
       Authorization: `Bearer ${creds.accessToken}`,
       'anthropic-beta': 'oauth-2025-04-20',
       'User-Agent': 'slopmaxxer',
     },
     signal: AbortSignal.timeout(15000),
+    }),
   });
-  if (!res.ok) return { ...base, error: `Anthropic said HTTP ${res.status}`, stale: res.status === 401 };
-  const u = await res.json();
+  const retry = reading.error && reading.retryAt ? `; next attempt after ${new Date(reading.retryAt).toISOString()}` : '';
+  if (!reading.usage) return { ...base, error: (reading.error || 'No recent Claude usage reading') + retry, stale: true };
+  const u = reading.usage;
 
   const windows = [
     toWindow('session', '5-hour', u.five_hour, 5 * 3600),
@@ -95,6 +102,8 @@ export async function fetchClaude({ dir }) {
 
   return {
     ...base,
+    stale: reading.cached,
+    note: reading.cached ? `${reading.error ? reading.error + '; ' : ''}cached Claude reading from ${new Date(reading.fetchedAt).toISOString()}${retry}` : undefined,
     windows,
     extraUsage: u.extra_usage?.is_enabled
       ? { utilization: u.extra_usage.utilization, currency: u.extra_usage.currency }
