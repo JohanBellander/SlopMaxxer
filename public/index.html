@@ -70,7 +70,10 @@
   .stats { display: flex; flex-wrap: wrap; gap: 6px; }
   .stats span { padding: 2px 8px; border-radius: var(--radius-chip); background: var(--panel-2); white-space: nowrap; }
   .spark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
-  .spark .b { flex: 1; white-space: pre; font-size: 15px; line-height: 1.05; }
+  .spark .b { flex: 0 0 auto; font-size: 15px; line-height: 1.05; }
+  /* Braille may use a fallback font; explicit cells keep both rows aligned. */
+  .spark .b > div { display: flex; }
+  .spark .b .cell { flex: 0 0 1ch; width: 1ch; text-align: center; white-space: pre; }
   .days { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12px; margin-top: -6px; }
   .days .est b { color: var(--muted); font-style: italic; }
   .days .src { flex-basis: 100%; color: var(--faint); color: color-mix(in srgb, var(--muted) 70%, transparent); }
@@ -172,7 +175,7 @@ function details(a) {
     </div>
     <div class="muted">Completed windows · observed usage, not a forecast</div>
     ${completed.length ? completed.map(r => `<div>${esc(r.kind)} · reset ${esc(fmt.dayTime(r.resetsAt))}: at least <b>${r.usedAtLeast}% used</b>, at most ${r.unusedAtMost}% unused. <span class="muted">Last observed ${r.gapMinutes}m before reset${r.nearReset ? '' : ' · incomplete coverage'}.</span></div>`).join('') : '<div class="muted">No completed windows observed yet. Keep SlopMaxxer running to record resets.</div>'}
-    ${a.week.none ? '' : `<div class="spark" title="${esc(dayBreakdown(a))}"><span class="muted">last 7d${(a.dailyEstimated || []).some(Boolean) ? ' · estimated' : ''}</span><div class="b" role="img" aria-label="Weekly usage per day: ${esc(dayBreakdown(a))}" style="color:${pvar(a)}">${S.brailleSpark(a.dailyPct, 18, maxDay).map(r => `<div>${r}</div>`).join('')}</div></div>`}
+    ${a.week.none ? '' : `<div class="spark" title="${esc(dayBreakdown(a))}"><span class="muted">last 7d${(a.dailyEstimated || []).some(Boolean) ? ' · estimated' : ''}</span><div class="b" role="img" aria-label="Weekly usage per day: ${esc(dayBreakdown(a))}" style="color:${pvar(a)}">${S.brailleSpark(a.dailyPct, 18, maxDay).map(r => `<div aria-hidden="true">${Array.from(r, ch => `<span class="cell">${ch}</span>`).join('')}</div>`).join('')}</div></div>`}
     <div class="muted">${esc(a.email)}</div>
     ${a.events.length ? `<div class="loglines">${a.events.slice(0, 5).map(logLine).join('')}</div>` : ''}
   </div>`;
