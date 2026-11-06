@@ -194,3 +194,15 @@ test('calendar nudges require a meaningful gap and honor actual window duration'
  assert.equal(vm([a([w('session',9,1.1),w('weekly',95,100)])]).next.status,'limited');
  assert.equal(vm([a([w('session',9,1.1),w('weekly',100,100)])]).next,null);
 });
+test('one account used up and another only stale still gives direction',()=>{
+ const used=a([w('session',10,4),w('weekly',100,100)],{id:'codex',provider:'codex',planSlug:'business'});
+ const stale=a([w('session',20,3,{observedAt:now-30*60000}),w('weekly',38,100,{observedAt:now-30*60000})],{id:'claude',planSlug:'team-5x',stale:true});
+ const result=vm([used,stale]);
+ assert.equal(result.next,null);
+ assert.equal(result.verdict.word,'Probably cooking.');
+ assert.match(result.verdict.why,/codex\/business used up until/);
+ assert.match(result.verdict.why,/claude\/team-5x had 62% left 30m ago/);
+ const staleCapped=a([w('weekly',100,100,{observedAt:now-30*60000})],{id:'claude',stale:true});
+ assert.equal(vm([used,staleCapped]).verdict.word,'Cooldown.');
+ assert.equal(vm([staleCapped]).verdict.word,'Refresh before deciding.');
+});

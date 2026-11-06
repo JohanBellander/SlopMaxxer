@@ -149,8 +149,23 @@ export function derive(snap, options = {}) {
   else if (allBlocked) verdict = { word: 'Cooldown.', arrow: '▼', tone: 'warn',
     why: recoveries.length ? `Earliest known availability: ${recoveries[0]}. Confirm after reset.` : 'Reset time is unknown. Refresh to check availability.' };
   else if (selected.some(a => a.status === 'restricted')) verdict = { word: 'Check model limits.', arrow: '▶', tone: 'warn', why: 'General capacity remains, but a model-specific limit needs attention.' };
-  else verdict = { word: selected.length ? 'Refresh before deciding.' : 'No matching accounts.', arrow: '?', tone: 'muted',
-    why: selected.length ? 'Readings are missing, stale, or awaiting reset confirmation.' : 'Log in with Claude Code or Codex, or change the provider filter.' };
+  else {
+    // No confirmed pick. Still give direction from last-known readings instead of a bare "refresh".
+    const blocked = selected.filter(a => a.status === 'blocked');
+    const usedUp = blocked.length ? `${blocked.map(a => a.slug).join(', ')} used up${recoveries.length ? ` until ${recoveries[0]}` : ''}. ` : '';
+    const lastKnown = selected.filter(a => (a.status === 'checking' && a.applicable.every(w => w.expired || w.usedPct < 100)) || (a.status === 'stale' && a.headroom > CFG.limitedPct))
+      .sort((x, y) => (y.status === 'checking') - (x.status === 'checking') || y.headroom - x.headroom)[0];
+    if (lastKnown) {
+      const age = Math.max(0, ...lastKnown.applicable.map(w => w.ageMinutes || 0));
+      verdict = { word: 'Probably cooking.', arrow: '▶', tone: 'muted',
+        why: `${usedUp}${lastKnown.slug} ${lastKnown.status === 'checking'
+          ? 'has passed a reset, so capacity should be back'
+          : `had ${Math.round(lastKnown.headroom)}% left ${duration(age)} ago`}. Refresh to confirm before a long task.` };
+    } else if (blocked.length) verdict = { word: 'Cooldown.', arrow: '▼', tone: 'warn',
+      why: `${usedUp}No other account has confirmed capacity; refresh to check.` };
+    else verdict = { word: selected.length ? 'Refresh before deciding.' : 'No matching accounts.', arrow: '?', tone: 'muted',
+      why: selected.length ? 'Readings are missing, stale, or awaiting reset confirmation.' : 'Log in with Claude Code or Codex, or change the provider filter.' };
+  }
   const sorted = accounts.slice().sort((a, b) => (a.id === next?.id ? -1 : b.id === next?.id ? 1 : a.pri - b.pri || b.routeScore - a.routeScore || a.id.localeCompare(b.id)));
   return { now, accounts, sorted, next, avoid: accounts.filter(a => !a.usable), verdict,
     availableCount: candidates.length, cfg: CFG, opportunityMinutes: snap.opportunityMinutes || 0 };
