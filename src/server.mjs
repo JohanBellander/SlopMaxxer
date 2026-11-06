@@ -11,7 +11,7 @@ import { shiftedMock } from './mock.mjs';
 import { buildSlopSnapshot } from './snapshot.mjs';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' };
 
 export function startServer({ port = 4747, demo = false, fallbackPort = false, onReady, onError } = {}) {
   const config = loadConfig();
@@ -69,7 +69,8 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
       res.writeHead(404);
       return res.end('not found');
     }
-    res.writeHead(200, { 'content-type': `${TYPES[path.extname(full)] || 'application/octet-stream'}; charset=utf-8` });
+    const type = TYPES[path.extname(full)] || 'application/octet-stream';
+    res.writeHead(200, { 'content-type': type.startsWith('text/') || type.endsWith('svg+xml') ? `${type}; charset=utf-8` : type });
     fs.createReadStream(full).pipe(res);
   });
 
