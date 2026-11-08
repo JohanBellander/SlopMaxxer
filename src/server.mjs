@@ -55,7 +55,7 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
     try {
       const vm = derive({ ...body, now: new Date().toISOString() });
       const next = vm.next
-        ? { id: vm.next.id, provider: vm.next.provider, slug: vm.next.slug, label: vm.next.label }
+        ? { id: vm.next.id, provider: vm.next.provider, slug: vm.next.slug, label: vm.next.label, status: vm.next.status }
         : null;
       return { ...body, guidance: { verdict: vm.verdict, next } };
     } catch {

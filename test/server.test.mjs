@@ -51,6 +51,6 @@ test('/api/slop carries the dashboard verdict for clients that cannot run guidan
   assert.deepEqual(body.guidance.verdict, vm.verdict);
   assert.equal(body.guidance.verdict.word, 'Speed up.');
   assert.deepEqual(body.guidance.next, {
-    id: vm.next.id, provider: vm.next.provider, slug: vm.next.slug, label: vm.next.label,
+    id: vm.next.id, provider: vm.next.provider, slug: vm.next.slug, label: vm.next.label, status: vm.next.status,
   });
 });
