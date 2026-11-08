@@ -1,5 +1,7 @@
 # SlopMaxxer
 
+(Local checkout folder: `TokenMaxxer`; GitHub repo and npm package: `slopmaxxer`.)
+
 Local web dashboard (plus CLI) that finds every Claude Code and Codex login on the machine, reads each
 account's applicable limits, and explains remaining capacity, upcoming resets, and a
 "next task →" account to route work to. Runs on 127.0.0.1 only, read-only on credentials. See `README.md`
@@ -56,7 +58,7 @@ Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CON
 - Voice in UI copy: terse, terminal-flavoured, a little meme-y (see design/HANDOFF.md).
 - Small commits, conventional-ish subjects; README screenshots live in `docs/`.
 
-## Gotchas
+## Ways to hurt yourself
 - **Never write to credential files** (`.credentials.json`, `auth.json`) or refresh tokens — read-only is a core promise.
   Tokens must only ever be sent to Anthropic/OpenAI.
 - The server must keep binding to `127.0.0.1`, never `0.0.0.0`.
@@ -64,6 +66,15 @@ Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CON
   Real state is written to `~/.slopmaxxer/` (history.jsonl, events.jsonl, state.json) — don't commit or delete it.
 - The usage endpoints aren't public APIs and can change; on failure an account keeps its last reading, flagged stale.
 - Use a non-default port (e.g. 4748) for dev so you don't collide with a running instance on 4747.
+
+## Review
+Process: global skill `pr-crosscheck`. Tier triggers beyond the defaults:
+- T2: `src/providers/`, `src/discover.mjs` (they read credentials and send tokens), `src/server.mjs` (bind address),
+  `public/guidance.js` (routing decisions), `package.json` `files`/`bin` (what ships to npm).
+Failure looks like: a write to a credential file or a refreshed token, a token sent anywhere but Anthropic/OpenAI,
+the server reachable beyond 127.0.0.1, a dependency added, or a dashboard that says "go" for an account that is out.
+Checks: `npm test`; for packaging or path changes also `npm run test:package`.
+Skip: `design/reference/` (preserved prototype), `docs/*.png`. At most 3 minor findings; UI-copy voice is not a finding.
 
 ## Distribution
 - The npm executable is `bin/slopmaxxer.mjs`; resolve assets relative to modules, not the working directory.
