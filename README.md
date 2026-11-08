@@ -113,6 +113,8 @@ The screenshots below show the earlier score-based design; current guidance uses
 Startup prints a clickable browser link. If the default port is occupied, SlopMaxxer automatically
 uses a free port and prints its URL. Keep the terminal open while using the dashboard.
 Use `--port 4748` to require a specific port, or `--no-open` to open the printed link yourself.
+On Windows, a SlopMaxxer icon also lands in the tray (bottom-right): click it to see how much is
+left on each account, double-click it to open the dashboard. `--no-tray` turns it off.
 No accounts found? Run `claude` or `codex login` first.
 `@latest` requests the latest release; `@0.1.1` selects a specific version.
 To install once, use `npm install -g slopmaxxer`, then run `slopmaxxer`.
@@ -136,7 +138,7 @@ npm start                        # opens the dashboard and prints its URL
 | `node bin/slopmaxxer.mjs accounts` | which logins were found, and where |
 | `npm link` | get a global `slopmaxxer` command |
 
-Flags: `--port 4747`, `--no-open`.
+Flags: `--port 4747`, `--no-open`, `--no-tray`.
 
 Maintainers: see [the release checklist](docs/releasing.md).
 
