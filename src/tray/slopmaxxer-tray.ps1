@@ -8,7 +8,8 @@ param(
   [string]$DashboardUrl = 'http://127.0.0.1:4747',
   [int]$ParentPid = 0,
   [string]$IconPath = '',
-  [string]$RenderTo = ''
+  [string]$RenderTo = '',
+  [int]$RenderAfterMs = 0
 )
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -26,6 +27,9 @@ $script:dot = [char]0x00B7
 $script:arrowR = [char]0x2192
 $script:fontTitle = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
 $script:fontVerdict = New-Object System.Drawing.Font('Consolas', 14, [System.Drawing.FontStyle]::Bold)
+# The dashboard's triangles stand ~0.9x the verdict cap height; at the word's own size
+# Consolas' fallback triangles only reach ~0.7x, so the arrow gets a larger font.
+$script:fontVerdictArrow = New-Object System.Drawing.Font('Consolas', 18, [System.Drawing.FontStyle]::Bold)
 $script:fontHead = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Bold)
 $script:fontBody = New-Object System.Drawing.Font('Consolas', 8.5)
 $script:fontSmall = New-Object System.Drawing.Font('Consolas', 8)
@@ -36,6 +40,19 @@ $script:downPos = $null
 $script:downAt = [DateTime]::MinValue
 $script:notifyIcon = $null
 $script:width = 400
+$script:verdictPanel = $null
+$script:verdictArrowText = ''
+$script:verdictWordText = ''
+$script:verdictTone = $null
+$script:nodPx = 0
+$script:animStart = [DateTime]::MinValue
+# Windows' "show animations" toggle is the tray's prefers-reduced-motion: off means no nod.
+$script:reducedMotion = $false
+try {
+  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class SlopNative { [DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint a, uint p, ref bool v, uint w); }' -ErrorAction Stop
+  $clientAnim = $true
+  if ([SlopNative]::SystemParametersInfo(0x1042, 0, [ref]$clientAnim, 0)) { $script:reducedMotion = -not $clientAnim }
+} catch { }
 
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
@@ -54,6 +71,55 @@ $panel.Padding = New-Object System.Windows.Forms.Padding(1)
 $form.Controls.Add($panel)
 # 1px border effect: shrink the panel inside the form by the form padding.
 $form.Padding = New-Object System.Windows.Forms.Padding(1)
+
+# Like the dashboard's urgent verdict: the arrow nods on a 1.5s cycle, rising 2px
+# (the dashboard's 5px at ~60px verdict text, scaled to tray size). No fade.
+$script:animTimer = New-Object System.Windows.Forms.Timer
+$script:animTimer.Interval = 40
+$script:animTimer.Add_Tick({
+  if (-not $form.Visible -or -not $script:verdictPanel) { $script:animTimer.Stop(); return }
+  $phase = (((Get-Date) - $script:animStart).TotalMilliseconds % 1500) / 1500
+  $lift = [math]::Sin([math]::PI * $phase)
+  $px = [int][math]::Round(2 * $lift)
+  if ($px -ne $script:nodPx) { $script:nodPx = $px; $script:verdictPanel.Invalidate() }
+})
+
+function Start-VerdictNod {
+  if ($script:reducedMotion -or -not $script:verdictPanel) { return }
+  if (-not $script:animTimer.Enabled) { $script:animStart = Get-Date; $script:animTimer.Start() }
+}
+
+# The verdict headline is owner-drawn in one panel: measuring and drawing with the
+# same GDI+ calls keeps the arrow/word gap exact at any display scaling, where two
+# Labels placed by measured widths overlapped. Placement uses glyph ink bounds
+# (GraphicsPath), baselines aligned, with a fixed ink gap between arrow and word.
+function Text-InkBounds([string]$text, $font, [double]$dpi, $fmt) {
+  $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+  try {
+    $path.AddString($text, $font.FontFamily, [int]$font.Style, [float]($font.SizeInPoints * $dpi / 72), (New-Object System.Drawing.PointF(0, 0)), $fmt)
+    return $path.GetBounds()
+  } finally { $path.Dispose() }
+}
+
+function Draw-VerdictHeadline($g, $client) {
+  if (-not $script:verdictWordText) { return }
+  $scale = $g.DpiX / 96.0
+  $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
+  $fmt = [System.Drawing.StringFormat]::GenericTypographic
+  $brush = New-Object System.Drawing.SolidBrush($script:verdictTone)
+  try {
+    $aFont = $script:fontVerdictArrow; $wFont = $script:fontVerdict
+    $ab = Text-InkBounds $script:verdictArrowText $aFont $g.DpiY $fmt
+    $wb = Text-InkBounds $script:verdictWordText $wFont $g.DpiY $fmt
+    $aAsc = ($aFont.SizeInPoints * $g.DpiY / 72) * $aFont.FontFamily.GetCellAscent($aFont.Style) / $aFont.FontFamily.GetEmHeight($aFont.Style)
+    $wAsc = ($wFont.SizeInPoints * $g.DpiY / 72) * $wFont.FontFamily.GetCellAscent($wFont.Style) / $wFont.FontFamily.GetEmHeight($wFont.Style)
+    $base = $client.Height - 6 * $scale
+    $ax = 5 * $scale - $ab.X
+    $wx = $ax + $ab.Right + 5 * $scale - $wb.X
+    $g.DrawString($script:verdictArrowText, $aFont, $brush, [float]$ax, [float]($base - $aAsc - $script:nodPx * $scale), $fmt)
+    $g.DrawString($script:verdictWordText, $wFont, $brush, [float]$wx, [float]($base - $wAsc), $fmt)
+  } finally { $brush.Dispose(); $fmt.Dispose() }
+}
 
 function Add-Label([string]$text, $font, $color, [int]$x, [int]$y, [int]$w, [int]$h = 15) {
   $l = New-Object System.Windows.Forms.Label
@@ -86,6 +152,7 @@ function Format-Reset($resetsAt) {
 
 function Build-Popup {
   $panel.Controls.Clear()
+  $script:verdictPanel = $null; $script:nodPx = 0
   $y = 8
   $null = Add-Label '> slopmaxxer' $script:fontTitle $script:cAccent 12 $y 200
   $stamp = if ($script:lastFetch -ne [DateTime]::MinValue) { $script:lastFetch.ToString('HH:mm:ss') } else { '' }
@@ -100,7 +167,19 @@ function Build-Popup {
     $v = $g.verdict
     $tone = $script:toneColor[[string]$v.tone]; if (-not $tone) { $tone = $script:cTxt }
     $null = Add-Label '> slop verdict' $script:fontSmall $script:cMuted 12 $y 376; $y += 16
-    $null = Add-Label ("{0} {1}" -f $v.arrow, $v.word) $script:fontVerdict $tone 12 $y 376 22; $y += 24
+    $script:verdictArrowText = [string]$v.arrow; $script:verdictWordText = [string]$v.word; $script:verdictTone = $tone
+    $head = New-Object System.Windows.Forms.Panel
+    $head.BackColor = $script:cBg
+    $head.Location = New-Object System.Drawing.Point(12, $y)
+    $head.Size = New-Object System.Drawing.Size(376, 26)
+    try { $head.GetType().GetProperty('DoubleBuffered', [System.Reflection.BindingFlags]'Instance, NonPublic').SetValue($head, $true) } catch { }
+    $head.Add_Paint({ param($sender, $e) Draw-VerdictHeadline $e.Graphics $sender.ClientSize })
+    $panel.Controls.Add($head)
+    if ($g.next -and $g.next.status -eq 'expiring') {
+      $script:verdictPanel = $head
+      Start-VerdictNod
+    }
+    $y += 28
     if ($v.why) { $why = Add-WrappedLabel ([string]$v.why) $script:fontSmall $script:cTxt 12 $y 376; $y += $why.Height + 4 }
     if ($g.next) {
       $lead = "next task $script:arrowR "
@@ -211,6 +290,7 @@ function Show-Popup {
   $script:lastHover = Get-Date
   Build-Popup; Place-Popup
   if (-not $form.Visible) { $form.Show(); $form.Update() }
+  Start-VerdictNod
   if (((Get-Date) - $script:lastFetch).TotalSeconds -gt 20) {
     Fetch-Data; Build-Popup; Place-Popup
   }
@@ -219,6 +299,10 @@ function Show-Popup {
 if ($RenderTo) {
   Fetch-Data; Build-Popup; Place-Popup
   $form.Show(); $form.Update()
+  if ($RenderAfterMs -gt 0) {
+    $until = (Get-Date).AddMilliseconds($RenderAfterMs)
+    while ((Get-Date) -lt $until) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 10 }
+  }
   $bmp = New-Object System.Drawing.Bitmap($form.Width, $form.Height)
   $form.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle(0, 0, $form.Width, $form.Height)))
   $bmp.Save($RenderTo, [System.Drawing.Imaging.ImageFormat]::Png)

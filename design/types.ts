@@ -78,7 +78,7 @@ export interface SlopSnapshot {
   opportunityMinutes?: number;
   demo?: boolean;
   // Added by the server on /api/slop for clients that cannot run guidance.js (the tray popup).
-  guidance?: { verdict: Verdict; next: { id: string; provider: Provider; slug: string; label: string } | null };
+  guidance?: { verdict: Verdict; next: { id: string; provider: Provider; slug: string; label: string; status: string } | null };
 }
 export interface GuidanceOptions {
   provider?: 'any' | Provider;
