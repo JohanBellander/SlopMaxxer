@@ -66,6 +66,14 @@ test('the tray nods the urgent verdict arrow like the dashboard', () => {
   // (the dashboard's 5px rise at ~60px verdict text, scaled down).
   assert.match(ps, /fontVerdictArrow/);
   assert.match(ps, /Round\(2 \* \$lift\)/);
+  // Owner-drawn headline: ink-bounds placement keeps the arrow/word gap exact at
+  // any display scaling, where two Labels placed by measured widths overlapped.
+  assert.match(ps, /Draw-VerdictHeadline/);
+  assert.match(ps, /Text-InkBounds/);
+  // Movement only, no fade - in the tray or in the dashboard's keyframes.
+  assert.doesNotMatch(ps, /0\.35 \* \$lift/);
+  const html = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /@keyframes urge \{[^}]*opacity/);
   // 1.5s nod cycle, like the dashboard's `urge` keyframes, driven by its own timer.
   assert.match(ps, /% 1500\) \/ 1500/);
   assert.match(ps, /Start-VerdictNod/);
