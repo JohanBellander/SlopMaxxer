@@ -98,7 +98,7 @@ test('snapshot launches the default Muse home with plain `muse`', () => {
     windows: [{ kind: 'weekly', usedPercent: 4, resetsAt: now + H, idle: false }],
   }, now);
   assert.equal(account.launch, 'muse');
-  assert.equal(account.label, 'gmail');
+  assert.equal(account.label, ''); // nicknames only, never the email domain
 });
 
 test('planOf slugs the Muse tier and tolerates a missing tier', () => {
