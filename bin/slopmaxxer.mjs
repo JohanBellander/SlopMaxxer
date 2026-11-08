@@ -10,6 +10,7 @@ import { buildSlopSnapshot } from '../src/snapshot.mjs';
 import { derive, windowSummary, forecastSummary } from '../public/guidance.js';
 import { shiftedMock } from '../src/mock.mjs';
 import { startServer } from '../src/server.mjs';
+import { startTray } from '../src/tray.mjs';
 
 const args = process.argv.slice(2);
 const usage = `Usage: slopmaxxer [command] [options]
@@ -22,6 +23,7 @@ Commands:
 Options:
   --demo            Show sample accounts (serve or status)
   --no-open         Start without opening a browser (serve)
+  --no-tray         Start without the tray icon (serve, Windows)
   --port <number>   Require port 1–65535 (default: 4747 or a free port)
   --json            Print JSON (status)
   --provider <name>  Filter status routing: any, claude, codex, muse
@@ -49,7 +51,7 @@ function fail(message) {
 }
 let [cmd = 'serve', ...rest] = args;
 if (cmd.startsWith('-')) [cmd, rest] = ['serve', args];
-const allowed = { serve: ['--demo', '--no-open', '--port'], status: ['--json', '--demo', '--provider'], accounts: [] };
+const allowed = { serve: ['--demo', '--no-open', '--no-tray', '--port'], status: ['--json', '--demo', '--provider'], accounts: [] };
 if (!Object.hasOwn(allowed, cmd)) fail(`Unknown command: ${cmd}`);
 for (let i = 0; i < rest.length; i++) {
   if (!allowed[cmd].includes(rest[i])) fail(`Unknown option for ${cmd}: ${rest[i]}`);
@@ -123,6 +125,7 @@ switch (cmd) {
           : url;
         console.log(`\nSlopMaxxer is ready\n\n  ${link}\n\nOpen the link in your browser (Ctrl+click in Windows Terminal).\nKeep this terminal open. Press Ctrl+C to stop.\n`);
         if (!flag('no-open')) openBrowser(url);
+        if (!flag('no-tray') && startTray({ url })) console.log('Tray icon is on, bottom-right. Click it for allowances, double-click it for the dashboard.');
       },
       onError: (error) => fail(error.code === 'EADDRINUSE'
         ? `Port ${port} is already in use. Choose another port, for example:\n  npx slopmaxxer@latest --port ${port === 65535 ? 4747 : port + 1}\n`

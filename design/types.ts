@@ -69,6 +69,7 @@ export interface DerivedWindow extends LimitWindow {
 }
 export type EventLevel = 'INFO' | 'WARN' | 'TIP' | 'CRON' | '429' | 'RANK';
 export interface SlopEvent { ts: string; level: EventLevel; accountId: string | null; msg: string; }
+export interface Verdict { word: string; arrow: string; tone: string; why: string; }
 export interface SlopSnapshot {
   now: string;
   accounts: Account[];
@@ -76,6 +77,8 @@ export interface SlopSnapshot {
   previousId?: string | null;
   opportunityMinutes?: number;
   demo?: boolean;
+  // Added by the server on /api/slop for clients that cannot run guidance.js (the tray popup).
+  guidance?: { verdict: Verdict; next: { id: string; provider: Provider; slug: string; label: string } | null };
 }
 export interface GuidanceOptions {
   provider?: 'any' | Provider;
