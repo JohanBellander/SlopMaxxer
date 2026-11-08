@@ -47,8 +47,13 @@ test('/api/slop carries the dashboard verdict for clients that cannot run guidan
   assert.match(response.headers.get('content-type'), /charset=utf-8/);
   const body = await response.json();
   // Same verdict the dashboard derives from the same snapshot: no second decision engine.
+  // (The why text can differ by an hour-boundary rounding: the server derives a
+  // millisecond after the snapshot, whose mock reset sits exactly on the hour.)
   const vm = derive({ ...body, now: body.now });
-  assert.deepEqual(body.guidance.verdict, vm.verdict);
+  assert.equal(body.guidance.verdict.word, vm.verdict.word);
+  assert.equal(body.guidance.verdict.arrow, vm.verdict.arrow);
+  assert.equal(body.guidance.verdict.tone, vm.verdict.tone);
+  assert.match(body.guidance.verdict.why, /of Weekly allowance remains/);
   assert.equal(body.guidance.verdict.word, 'Speed up.');
   assert.deepEqual(body.guidance.next, {
     id: vm.next.id, provider: vm.next.provider, slug: vm.next.slug, label: vm.next.label, status: vm.next.status,
