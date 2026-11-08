@@ -82,7 +82,7 @@ async function status() {
   console.log(c.bold(`\nSlopMaxxer · ${vm.verdict.arrow} ${vm.verdict.word}`));
   console.log(vm.verdict.why);
   for (const a of vm.sorted) {
-    console.log(c.bold(`\n${a.slug} ${a.label} · ${a.action}${vm.next?.id === a.id ? ' ← next task' : ''}`));
+    console.log(c.bold(`\n${a.label ? `${a.slug} ${a.label}` : a.slug} · ${a.action}${vm.next?.id === a.id ? ' ← next task' : ''}`));
     console.log(`  ${a.reason}`);
     for (const w of a.windows) {
       console.log(`  ${w.label}: ${windowSummary(w)}`);

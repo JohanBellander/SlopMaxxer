@@ -186,7 +186,8 @@ function Build-Popup {
       $null = Add-Label $lead $script:fontHead $script:cMuted 12 $y 376
       $nc = $script:providerColor[[string]$g.next.provider]; if (-not $nc) { $nc = $script:cTxt }
       $nx = 12 + (Text-Width $lead $script:fontHead)
-      $null = Add-Label ("{0} {1}" -f $g.next.slug, $g.next.label) $script:fontHead $nc $nx $y (388 - $nx)
+      $nextName = if ($g.next.label) { "{0} {1}" -f $g.next.slug, $g.next.label } else { [string]$g.next.slug }
+      $null = Add-Label $nextName $script:fontHead $nc $nx $y (388 - $nx)
       $y += 18
     }
     $rule = New-Object System.Windows.Forms.Panel
@@ -208,7 +209,8 @@ function Build-Popup {
   foreach ($a in $accounts) {
     $color = $script:providerColor[[string]$a.provider]
     if (-not $color) { $color = $script:cTxt }
-    $null = Add-Label ("{0}/{1} {2}" -f $a.provider, $a.planSlug, $a.label) $script:fontHead $color 12 $y 336
+    $acctName = if ($a.label) { "{0}/{1} {2}" -f $a.provider, $a.planSlug, $a.label } else { "{0}/{1}" -f $a.provider, $a.planSlug }
+    $null = Add-Label $acctName $script:fontHead $color 12 $y 336
     $y += 17
     if ($a.error) {
       $err = [string]$a.error; if ($err.Length -gt 52) { $err = $err.Substring(0, 52) }

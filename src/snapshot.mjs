@@ -60,13 +60,13 @@ export function toSlopAccount(a, now = Date.now()) {
   const observedAt = a.observedAt ?? (a.stale || a.error ? null : now);
   const windows = (a.windows || []).map(w => toWindow(w, observedAt));
   const by = kind => windows.find(w => w.kind === kind) || null;
-  const domain = (a.email || '').split('@')[1]?.split('.')[0];
+  // Labels are nicknames only (config), never derived from the email domain.
   return {
     id: a.id,
     provider: a.provider,
     plan: a.plan || 'unknown plan',
     planSlug: a.planSlug || slugify(a.plan),
-    label: a.nickname || domain || path.basename(a.dir || ''),
+    label: a.nickname || '',
     email: a.email || a.dir,
     windows, observedAt: iso(observedAt),
     fiveHour: by('session'), weekly: by('weekly'),
@@ -102,10 +102,11 @@ export function diffEvents(prev, vm, nowIso) {
   const out = [];
   for (const a of vm.accounts) {
     const p = prev.accounts?.[a.id];
+    const name = a.label ? `${a.slug} ${a.label}` : a.slug;
     if (!p || p.status !== a.status) out.push({ ts: nowIso, level: a.status === 'blocked' ? 'WARN' : 'INFO',
-      accountId: a.id, msg: `${a.slug} ${a.label}: ${a.action}. ${a.reason}` });
+      accountId: a.id, msg: `${name}: ${a.action}. ${a.reason}` });
     if (p && a.fresh && a.week.resetsAt && p.weekReset && Date.parse(a.week.resetsAt) > Date.parse(p.weekReset))
-      out.push({ ts: nowIso, level: 'INFO', accountId: a.id, msg: `${a.slug} ${a.label}: new weekly window observed.` });
+      out.push({ ts: nowIso, level: 'INFO', accountId: a.id, msg: `${name}: new weekly window observed.` });
   }
   return out;
 }

@@ -137,6 +137,7 @@ const fmt = {
   hm: (iso) => { const d = new Date(iso); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); },
 };
 const pvar = (a) => `var(--${a.provider})`;
+const acctName = (a) => a.label ? `${a.slug} ${a.label}` : a.slug;
 const tone = (t) => `var(--${t})`;
 const tint = (t, pct) => `color-mix(in srgb, ${t} ${pct}%, transparent)`;
 const LEVEL = { INFO: ['t-muted', 't-txt'], '429': ['t-red', 't-red'], WARN: ['t-warn', 't-txt'], TIP: ['t-ok', 't-txt'], RANK: ['t-hot', 't-hot'], CRON: ['t-muted', 't-muted'] };
@@ -202,7 +203,7 @@ function render() {
     return `
       <div class="acct ${a.status === 'blocked' ? 'cooked' : ''}">
         <button class="row" type="button" data-toggle="${a.id}" aria-expanded="${open}" aria-controls="d-${a.id}">
-          <span class="name"><strong style="color:${pvar(a)}">${esc(a.slug)}</strong> <span class="muted">${esc(a.label)}</span></span>
+          <span class="name"><strong style="color:${pvar(a)}">${esc(a.slug)}</strong>${a.label ? ` <span class="muted">${esc(a.label)}</span>` : ''}</span>
           <span class="chip" style="color:${tone(a.tone)};background:${tint(tone(a.tone), 15)}">${a.status === 'expiring' ? '▲▲ ' : a.status === 'underused' ? '▲ ' : ['limited', 'blocked'].includes(a.status) ? '▼ ' : ''}${a.action}</span>
           <span class="pre">${runs(S.meterGlyphs(w, 20), a)}</span>
           <span class="pred" title="${esc(w.label || 'Applicable limits')}">${a.headroom != null ? `<b>${Math.round(a.headroom)}%</b> left` : 'unknown'}</span>
@@ -213,12 +214,12 @@ function render() {
 
   // schedule header: day labels every 12 glyphs (= 24h at 2h/glyph)
   const start = new Date(vm.now); start.setHours(0, 0, 0, 0);
-  const nameW = Math.max(24, ...vm.sorted.map((a) => (a.slug + ' ' + a.label).length + 2));
+  const nameW = Math.max(24, ...vm.sorted.map((a) => acctName(a).length + 2));
   let head = ''.padEnd(nameW);
   for (let i = 0; i < 7; i++) { const d = new Date(start.getTime() + i * 864e5); head += (DAYS[d.getDay()] + ' ' + pad(d.getDate())).padEnd(12); }
   const sched = !state.sched ? '' : '<div class="sched"><div class="inner">'
     + `<div class="muted">${head}</div>`
-    + vm.sorted.map((a) => `<div class="line"><span style="color:${pvar(a)}">${esc((a.slug + ' ' + a.label).padEnd(nameW))}</span>${runs(S.timelineGlyphs(a, vm.now), a)}</div>`).join('')
+    + vm.sorted.map((a) => `<div class="line"><span style="color:${pvar(a)}">${esc(acctName(a).padEnd(nameW))}</span>${runs(S.timelineGlyphs(a, vm.now), a)}</div>`).join('')
     + '<div class="muted" style="margin-top:4px"><span class="r-now">▎</span>now  ○ 5h refill  <span class="r-ok">◆</span> weekly refill</div>'
     + '</div></div>';
 
@@ -244,12 +245,12 @@ function render() {
         <div class="muted"><span class="prompt">❯</span> slop verdict</div>
         <h1><span style="color:${tone(v.tone)}"><span class="direction" aria-hidden="true">${v.arrow}</span> ${esc(v.word)}</span></h1>
         <p class="why" style="font-size:18px;line-height:1.5">${esc(v.why)}</p>
-        ${vm.next ? `<div class="nexttask"><span class="label">Next task →</span><span class="slug" style="color:${pvar(vm.next)}">${esc(vm.next.slug)}</span><span class="muted">${esc(vm.next.label)}</span><span class="toast" aria-live="polite">${esc(state.toast)}</span></div>` : ''}
+        ${vm.next ? `<div class="nexttask"><span class="label">Next task →</span><span class="slug" style="color:${pvar(vm.next)}">${esc(vm.next.slug)}</span>${vm.next.label ? `<span class="muted">${esc(vm.next.label)}</span>` : ''}<span class="toast" aria-live="polite">${esc(state.toast)}</span></div>` : ''}
         <div class="meta" style="margin-top:16px">
           <label>provider <select id="provider">${['any', 'claude', 'codex', 'muse'].map(x => `<option value="${x}" ${state.provider === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
           <span class="muted">Choose an account that suits your task. Capacity percentages are separate per plan.</span>
         </div>
-        ${vm.avoid.length ? `<div class="avoid">needs attention: ${vm.avoid.map(a => `<span>${esc(a.slug)} ${esc(a.label)} · ${esc(a.action)}</span>`).join(' · ')}</div>` : ''}
+        ${vm.avoid.length ? `<div class="avoid">needs attention: ${vm.avoid.map(a => `<span>${esc(acctName(a))} · ${esc(a.action)}</span>`).join(' · ')}</div>` : ''}
         ${vm.opportunityMinutes ? `<div class="muted" style="margin-top:12px">Observed ${Math.round(vm.opportunityMinutes)}m with an account limited while another reported capacity. This is not measured work time; task suitability is unknown.</div>` : ''}
       </section>
 

@@ -34,7 +34,12 @@ test('adapter maps a live Claude account and a weekly-only Codex account', () =>
     spark: [],
   }, now);
   assert.equal(claude.planSlug, 'max-5x');
-  assert.equal(claude.label, 'acme');
+  // No nickname in config: no label. Labels are never derived from the email domain.
+  assert.equal(claude.label, '');
+  const nicknamed = toSlopAccount({
+    id: 'c2', provider: 'claude', dir: '/x/.claude-work', email: 'me@acme.com', plan: 'Max 5x', nickname: 'work', windows: [],
+  }, now);
+  assert.equal(nicknamed.label, 'work');
   assert.equal(claude.fiveHour.usedPct, 38);
   assert.ok(claude.launch.includes('CLAUDE_CONFIG_DIR'));
 
