@@ -246,7 +246,7 @@ function render() {
         <p class="why" style="font-size:18px;line-height:1.5">${esc(v.why)}</p>
         ${vm.next ? `<div class="nexttask"><span class="label">Next task →</span><span class="slug" style="color:${pvar(vm.next)}">${esc(vm.next.slug)}</span><span class="muted">${esc(vm.next.label)}</span><span class="toast" aria-live="polite">${esc(state.toast)}</span></div>` : ''}
         <div class="meta" style="margin-top:16px">
-          <label>provider <select id="provider">${['any', 'claude', 'codex'].map(x => `<option value="${x}" ${state.provider === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+          <label>provider <select id="provider">${['any', 'claude', 'codex', 'muse'].map(x => `<option value="${x}" ${state.provider === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
           <span class="muted">Choose an account that suits your task. Capacity percentages are separate per plan.</span>
         </div>
         ${vm.avoid.length ? `<div class="avoid">needs attention: ${vm.avoid.map(a => `<span>${esc(a.slug)} ${esc(a.label)} · ${esc(a.action)}</span>`).join(' · ')}</div>` : ''}

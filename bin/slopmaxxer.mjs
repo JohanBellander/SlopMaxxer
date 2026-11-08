@@ -17,14 +17,14 @@ const usage = `Usage: slopmaxxer [command] [options]
 Commands:
   serve       Open the local dashboard (default)
   status      Print a one-shot terminal summary
-  accounts    List discovered Claude Code and Codex logins
+  accounts    List discovered Claude Code, Codex and Muse logins
 
 Options:
   --demo            Show sample accounts (serve or status)
   --no-open         Start without opening a browser (serve)
   --port <number>   Require port 1–65535 (default: 4747 or a free port)
   --json            Print JSON (status)
-  --provider <name>  Filter status routing: any, claude, codex
+  --provider <name>  Filter status routing: any, claude, codex, muse
   -h, --help        Show help
   -v, --version     Show version
 
@@ -33,7 +33,7 @@ Examples:
   npx slopmaxxer --demo
   npx slopmaxxer status --json
 
-Log in with Claude Code or Codex first; existing logins are found automatically.
+Log in with Claude Code, Codex or Muse first; existing logins are found automatically.
 Keep the terminal open while using the dashboard. Press Ctrl+C to stop.`;
 if (args.includes('--help') || args.includes('-h') || args[0] === 'help') {
   console.log(usage);
@@ -73,7 +73,7 @@ const c = process.stdout.isTTY && !process.env.NO_COLOR
 
 async function status() {
   const provider = opt('provider', 'any');
-  if (!['any', 'claude', 'codex'].includes(provider)) fail('Unsupported provider filter.');
+  if (!['any', 'claude', 'codex', 'muse'].includes(provider)) fail('Unsupported provider filter.');
   const snap = flag('demo') ? shiftedMock() : buildSlopSnapshot(await collect(), { persist: false });
   const vm = derive(snap, { provider });
   if (flag('json')) return console.log(JSON.stringify({ ...snap, guidance: vm, nextUp: vm.next?.id || null }, null, 2));
@@ -94,7 +94,7 @@ async function status() {
     if (a.note) console.log(c.dim(`  ${a.note}`));
   }
   if (vm.opportunityMinutes) console.log(`\nObserved ${Math.round(vm.opportunityMinutes)}m with an account limited while another reported capacity; not measured work time.`);
-  if (!vm.accounts.length) console.log('\nLog in with Claude Code or Codex first.');
+  if (!vm.accounts.length) console.log('\nLog in with Claude Code, Codex or Muse first.');
 }
 
 function openBrowser(url) {

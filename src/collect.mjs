@@ -6,11 +6,12 @@ import crypto from 'node:crypto';
 import { discoverInstalls, loadConfig, SLOP_HOME } from './discover.mjs';
 import { fetchClaude } from './providers/claude.mjs';
 import { fetchCodex } from './providers/codex.mjs';
+import { fetchMuse } from './providers/muse.mjs';
 import { analyzeAccount, pickNext } from './pace.mjs';
 import { recentRate, completedWindows, weeklyOutlook } from './history.mjs';
 import { dailyHistory } from './backfill.mjs';
 
-const FETCHERS = { claude: fetchClaude, codex: fetchCodex };
+const FETCHERS = { claude: fetchClaude, codex: fetchCodex, muse: fetchMuse };
 const HISTORY_FILE = path.join(SLOP_HOME, 'history.jsonl');
 const HISTORY_KEEP_MS = 35 * 86400_000;
 
@@ -61,9 +62,9 @@ function fromLastSamples(a, now) {
   if (!kinds.length) return null;
   const windows = kinds.map((s) => ({
     kind: s.kind,
-    label: s.kind === 'session' ? '5-hour' : s.kind === 'weekly' ? 'Weekly' : s.kind.replaceAll('_', ' '),
+    label: s.kind === 'session' ? (a.provider === 'muse' ? 'Window' : '5-hour') : s.kind === 'weekly' ? 'Weekly' : s.kind.replaceAll('_', ' '),
     usedPercent: s.used,
-    windowSeconds: s.windowSeconds || (s.kind === 'session' ? 5 * 3600 : 7 * 86400),
+    windowSeconds: s.windowSeconds || (s.kind === 'session' && a.provider === 'muse' ? null : s.kind === 'session' ? 5 * 3600 : 7 * 86400),
     resetsAt: s.resetsAt,
     idle: !s.resetsAt && s.used === 0,
     observedAt: s.t,

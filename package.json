@@ -1,7 +1,7 @@
 {
   "name": "slopmaxxer",
   "version": "0.1.5",
-  "description": "See every Claude & Codex account's limits in one place — and whether to pick up or slow down.",
+  "description": "See every Claude, Codex & Muse account's limits in one place — and whether to pick up or slow down.",
   "type": "module",
   "bin": {
     "slopmaxxer": "bin/slopmaxxer.mjs"
