@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import net from 'node:net';
 import { once } from 'node:events';
 import { startServer } from '../src/server.mjs';
+import { derive } from '../public/guidance.js';
 
 test('occupied default port falls back and reports the actual working URL', async (t) => {
   const occupied = net.createServer();
@@ -33,4 +34,23 @@ test('an explicitly requested occupied port reports an error without fallback', 
       onReady: () => reject(new Error('Should not start on another port')) });
   });
   assert.equal(error.code, 'EADDRINUSE');
+});
+
+test('/api/slop carries the dashboard verdict for clients that cannot run guidance.js (the tray)', async (t) => {
+  let server;
+  const url = await new Promise((resolve, reject) => {
+    server = startServer({ port: 0, demo: true, onReady: resolve, onError: reject });
+  });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const response = await fetch(`${url}/api/slop`);
+  // The tray is Windows PowerShell: without a charset it decodes UTF-8 arrows as mojibake.
+  assert.match(response.headers.get('content-type'), /charset=utf-8/);
+  const body = await response.json();
+  // Same verdict the dashboard derives from the same snapshot: no second decision engine.
+  const vm = derive({ ...body, now: body.now });
+  assert.deepEqual(body.guidance.verdict, vm.verdict);
+  assert.equal(body.guidance.verdict.word, 'Speed up.');
+  assert.deepEqual(body.guidance.next, {
+    id: vm.next.id, provider: vm.next.provider, slug: vm.next.slug, label: vm.next.label,
+  });
 });

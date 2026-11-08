@@ -40,3 +40,20 @@ test('the tray script is a drag-safe click NotifyIcon popup reading the snapshot
   assert.doesNotMatch(ps, /\$notify\.Add_MouseMove/);
   assert.match(ps, /Invoke-RestMethod/);
 });
+
+test('the tray popup shows the server-provided verdict instead of re-deciding it', () => {
+  const ps = fs.readFileSync(TRAY_SCRIPT, 'utf8');
+  // Reads guidance.verdict + guidance.next from /api/slop and renders them.
+  assert.match(ps, /lastData\.guidance/);
+  assert.match(ps, /slop verdict/);
+  assert.match(ps, /next task/);
+  assert.match(ps, /Add-WrappedLabel/);
+  assert.match(ps, /toneColor/);
+  assert.match(ps, /#FF6BB5/); // phosphor --pink, the "Speed up." tone
+  // The hover tooltip carries the verdict too, within the NotifyIcon limit.
+  assert.match(ps, /Update-Tooltip/);
+  assert.match(ps, /Substring\(0, 63\)/);
+  // No second decision engine: thresholds and verdict words live in guidance.js only.
+  assert.doesNotMatch(ps, /meaningfulPct|underusedGap|routeScore/);
+  assert.doesNotMatch(ps, /'Speed up\.'|'Slow down\.'|'Keep cooking\.'|'Cooldown\.'/);
+});

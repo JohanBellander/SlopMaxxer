@@ -113,7 +113,8 @@ The screenshots below show the earlier score-based design; current guidance uses
 Startup prints a clickable browser link. If the default port is occupied, SlopMaxxer automatically
 uses a free port and prints its URL. Keep the terminal open while using the dashboard.
 Use `--port 4748` to require a specific port, or `--no-open` to open the printed link yourself.
-On Windows, a SlopMaxxer icon also lands in the tray (bottom-right): click it to see how much is
+On Windows, a SlopMaxxer icon also lands in the tray (bottom-right): click it to see the same
+verdict as the dashboard (▲ Speed up., ▼ Slow down., …) plus how much is
 left on each account, double-click it to open the dashboard. `--no-tray` turns it off.
 No accounts found? Run `claude` or `codex login` first.
 `@latest` requests the latest release; `@0.1.1` selects a specific version.

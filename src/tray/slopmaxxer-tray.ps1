@@ -1,5 +1,6 @@
 # SlopMaxxer tray companion (Windows only, spawned by src/tray.mjs).
-# Shows a NotifyIcon; clicking it pops a small borderless window with the remaining
+# Shows a NotifyIcon; clicking it pops a small borderless window with the dashboard's
+# verdict (Speed up. / Slow down. / ...) and the remaining
 # allowance per account, styled after the dashboard's phosphor theme. Data comes
 # from the local /api/slop endpoint; this script never sees a credential.
 param(
@@ -17,10 +18,14 @@ Add-Type -AssemblyName System.Drawing
 function C([string]$hex) { [System.Drawing.ColorTranslator]::FromHtml($hex) }
 $script:cBg = C '#0B1410'; $script:cBorder = C '#1A3A2B'; $script:cTxt = C '#B8F5CF'
 $script:cMuted = C '#78B892'; $script:cFaint = C '#1F4231'; $script:cAccent = C '#3DFF8C'
-$script:cRed = C '#FF5C5C'; $script:cWarn = C '#FFE066'
+$script:cRed = C '#FF5C5C'; $script:cWarn = C '#FFE066'; $script:cPink = C '#FF6BB5'
+# Verdict tones from the dashboard's phosphor tokens (--pink/--ok/--warn/--red/--muted).
+$script:toneColor = @{ pink = $script:cPink; ok = $script:cAccent; warn = $script:cWarn; red = $script:cRed; muted = $script:cMuted }
 $script:providerColor = @{ claude = (C '#FFB86B'); codex = (C '#6BE3FF'); muse = (C '#C792FF') }
 $script:dot = [char]0x00B7
+$script:arrowR = [char]0x2192
 $script:fontTitle = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
+$script:fontVerdict = New-Object System.Drawing.Font('Consolas', 14, [System.Drawing.FontStyle]::Bold)
 $script:fontHead = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Bold)
 $script:fontBody = New-Object System.Drawing.Font('Consolas', 8.5)
 $script:fontSmall = New-Object System.Drawing.Font('Consolas', 8)
@@ -29,6 +34,7 @@ $script:lastFetch = [DateTime]::MinValue
 $script:lastHover = [DateTime]::MinValue
 $script:downPos = $null
 $script:downAt = [DateTime]::MinValue
+$script:notifyIcon = $null
 $script:width = 400
 
 $form = New-Object System.Windows.Forms.Form
@@ -49,13 +55,24 @@ $form.Controls.Add($panel)
 # 1px border effect: shrink the panel inside the form by the form padding.
 $form.Padding = New-Object System.Windows.Forms.Padding(1)
 
-function Add-Label([string]$text, $font, $color, [int]$x, [int]$y, [int]$w) {
+function Add-Label([string]$text, $font, $color, [int]$x, [int]$y, [int]$w, [int]$h = 15) {
   $l = New-Object System.Windows.Forms.Label
   $l.Text = $text; $l.Font = $font; $l.ForeColor = $color; $l.BackColor = $script:cBg
   $l.AutoSize = $false; $l.Location = New-Object System.Drawing.Point($x, $y)
-  $l.Size = New-Object System.Drawing.Size($w, 15)
+  $l.Size = New-Object System.Drawing.Size($w, $h)
   $panel.Controls.Add($l)
   return $l
+}
+
+# A label as tall as its wrapped text needs (the verdict's "why" runs long).
+function Add-WrappedLabel([string]$text, $font, $color, [int]$x, [int]$y, [int]$w) {
+  $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak
+  $sz = [System.Windows.Forms.TextRenderer]::MeasureText($text, $font, (New-Object System.Drawing.Size($w, 1000)), $flags)
+  return Add-Label $text $font $color $x $y $w ([math]::Max(15, $sz.Height))
+}
+
+function Text-Width([string]$text, $font) {
+  return [System.Windows.Forms.TextRenderer]::MeasureText($text, $font).Width
 }
 
 function Format-Reset($resetsAt) {
@@ -75,6 +92,31 @@ function Build-Popup {
   $t = Add-Label $stamp $script:fontSmall $script:cMuted 290 $y 96
   $t.TextAlign = 'MiddleRight'
   $y += 24
+
+  # The dashboard's nagging, ready-made by the server (guidance in /api/slop):
+  # arrow + word in the verdict tone, the why underneath, then where to go next.
+  $g = if ($script:lastData) { $script:lastData.guidance } else { $null }
+  if ($g -and $g.verdict -and $g.verdict.word) {
+    $v = $g.verdict
+    $tone = $script:toneColor[[string]$v.tone]; if (-not $tone) { $tone = $script:cTxt }
+    $null = Add-Label '> slop verdict' $script:fontSmall $script:cMuted 12 $y 376; $y += 16
+    $null = Add-Label ("{0} {1}" -f $v.arrow, $v.word) $script:fontVerdict $tone 12 $y 376 22; $y += 24
+    if ($v.why) { $why = Add-WrappedLabel ([string]$v.why) $script:fontSmall $script:cTxt 12 $y 376; $y += $why.Height + 4 }
+    if ($g.next) {
+      $lead = "next task $script:arrowR "
+      $null = Add-Label $lead $script:fontHead $script:cMuted 12 $y 376
+      $nc = $script:providerColor[[string]$g.next.provider]; if (-not $nc) { $nc = $script:cTxt }
+      $nx = 12 + (Text-Width $lead $script:fontHead)
+      $null = Add-Label ("{0} {1}" -f $g.next.slug, $g.next.label) $script:fontHead $nc $nx $y (388 - $nx)
+      $y += 18
+    }
+    $rule = New-Object System.Windows.Forms.Panel
+    $rule.BackColor = $script:cFaint
+    $rule.Location = New-Object System.Drawing.Point(12, $y)
+    $rule.Size = New-Object System.Drawing.Size(376, 1)
+    $panel.Controls.Add($rule)
+    $y += 9
+  }
 
   $accounts = @()
   if ($script:lastData -and $script:lastData.accounts) { $accounts = @($script:lastData.accounts) }
@@ -147,11 +189,22 @@ function Place-Popup {
   $form.Location = New-Object System.Drawing.Point(($area.Right - $form.Width - 8), ($area.Bottom - $form.Height - 8))
 }
 
+# The hover tooltip nags too, once a fetch has happened. NotifyIcon text caps at 63 chars.
+function Update-Tooltip {
+  if (-not $script:notifyIcon) { return }
+  $text = 'SlopMaxxer'
+  $v = if ($script:lastData -and $script:lastData.guidance) { $script:lastData.guidance.verdict } else { $null }
+  if ($v -and $v.word) { $text = "SlopMaxxer $script:dot $($v.arrow) $($v.word)" }
+  if ($text.Length -gt 63) { $text = $text.Substring(0, 63) }
+  try { $script:notifyIcon.Text = $text } catch { }
+}
+
 function Fetch-Data {
   try {
     $script:lastData = Invoke-RestMethod -Uri $ApiUrl -TimeoutSec 20
     $script:lastFetch = Get-Date
   } catch { $script:lastData = $null }
+  Update-Tooltip
 }
 
 function Show-Popup {
@@ -177,6 +230,7 @@ if ($IconPath -and (Test-Path $IconPath)) { $notify.Icon = New-Object System.Dra
 else { $notify.Icon = [System.Drawing.SystemIcons]::Application }
 $notify.Text = 'SlopMaxxer'
 $notify.Visible = $true
+$script:notifyIcon = $notify
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $menu.BackColor = $script:cBg; $menu.ForeColor = $script:cTxt; $menu.Font = $script:fontBody

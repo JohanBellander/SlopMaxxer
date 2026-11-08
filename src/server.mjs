@@ -9,6 +9,7 @@ import { loadConfig } from './discover.mjs';
 import { demoSnapshot } from './demo.mjs';
 import { shiftedMock } from './mock.mjs';
 import { buildSlopSnapshot } from './snapshot.mjs';
+import { derive } from '../public/guidance.js';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' };
@@ -46,8 +47,24 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
   const ensureFresh = (force) =>
     force || !snapshot || Date.now() - fetchedAt >= pollMs ? refresh() : undefined;
 
+  // The tray popup cannot run guidance.js, so /api/slop carries the dashboard's verdict
+  // ready-made. Decisions stay in guidance.js; this only copies its output, derived
+  // against the real clock exactly like index.html does before rendering.
+  const withGuidance = (body) => {
+    if (!body?.accounts) return body;
+    try {
+      const vm = derive({ ...body, now: new Date().toISOString() });
+      const next = vm.next
+        ? { id: vm.next.id, provider: vm.next.provider, slug: vm.next.slug, label: vm.next.label }
+        : null;
+      return { ...body, guidance: { verdict: vm.verdict, next } };
+    } catch {
+      return body; // a guidance failure must not take the snapshot down with it
+    }
+  };
+
   const json = (res, body) => {
-    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ ...body, pollMs }));
   };
 
@@ -60,7 +77,7 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
     }
     if (url.pathname === '/api/slop') {
       await ensureFresh(force || !slop);
-      return json(res, slop);
+      return json(res, withGuidance(slop));
     }
     // Old bookmarks use the same decision UI; the archived page has obsolete verdict rules.
     const file = ['/', '/classic', '/classic.html'].includes(url.pathname) ? 'index.html' : path.basename(url.pathname);
