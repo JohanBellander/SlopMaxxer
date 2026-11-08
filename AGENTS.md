@@ -15,7 +15,8 @@ for the user-facing feature list and guidance rules.
 
 ## Layout
 ```
-bin/slopmaxxer.mjs      CLI: serve (default) · status [--json] · accounts; flags --port --no-open --demo
+bin/slopmaxxer.mjs      CLI: serve (default) · status [--json] · accounts; flags --port --no-open --no-tray --demo
+src/tray.mjs + tray/    Windows tray icon + click popup (PowerShell/WinForms, zero deps); polls /api/slop, dies with the server
 src/discover.mjs        finds installs (~/.claude*, ~/.codex*, ~/.config/muse, CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_CONFIG_HOME, ~/.slopmaxxer/config.json)
 src/providers/          claude.mjs · codex.mjs — live limit reads via the CLIs' own (undocumented) usage endpoints; muse.mjs — via `muse usage --json` (token stays in the Muse CLI)
 src/collect.mjs         polls (on demand, ≥120s apart, only while a dashboard is visible), dedupes logins, stores readings
