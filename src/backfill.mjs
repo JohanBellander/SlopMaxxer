@@ -179,6 +179,10 @@ export function dailyHistory(a, ownReadings, now = Date.now()) {
   const dirs = a.dirs || [a.dir];
   const weekly = (a.windows || []).find((w) => w.kind === 'weekly');
 
+  if (a.provider !== 'claude' && a.provider !== 'codex') {
+    return { pct: dailyFromReadings(ownReadings, now), estimated: Array(7).fill(false), source: 'own readings' };
+  }
+
   if (a.provider === 'codex') {
     const disk = dirs.flatMap((d) => codexDiskSamples(d, now));
     return { pct: dailyFromReadings([...disk, ...ownReadings], now), estimated: Array(7).fill(false), source: disk.length ? 'codex session logs' : 'own readings' };

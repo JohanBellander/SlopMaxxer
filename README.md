@@ -8,14 +8,14 @@
 
 ### every token unused is a token wasted
 
-**One local dashboard for every Claude Code and Codex account on your machine.**<br>
+**One local dashboard for every Claude Code, Codex and Muse account on your machine.**<br>
 It shows where you can work next, which capacity expires soon, and what might interrupt you.
 
 </div>
 
 ## quick start
 
-Needs **Node.js 20+** (including npm/npx) and an existing Claude Code or Codex login.
+Needs **Node.js 20+** (including npm/npx) and an existing Claude Code, Codex or Muse login.
 Run this from your home folder or another folder outside the SlopMaxxer source checkout:
 
 ```sh
@@ -43,6 +43,7 @@ run `cd ~` first, then the `npx` command above. This avoids npm selecting the lo
 ![local](https://img.shields.io/badge/runs-127.0.0.1%20only-6BE3FF?style=flat-square&labelColor=050A07)
 ![claude](https://img.shields.io/badge/Claude%20Code-supported-FFB86B?style=flat-square&labelColor=050A07)
 ![codex](https://img.shields.io/badge/Codex-supported-6BE3FF?style=flat-square&labelColor=050A07)
+![muse](https://img.shields.io/badge/Muse%20Code-supported-C792FF?style=flat-square&labelColor=050A07)
 ![vibe](https://img.shields.io/badge/vibe-immaculate-FF6BB5?style=flat-square&labelColor=050A07)
 
 <img src="docs/dashboard.png" alt="SlopMaxxer dashboard in the Phosphor theme, showing the verdict, the next account to use, account rows and the event log" width="900">
@@ -187,6 +188,7 @@ because those are different limits.
 |---|---|---|
 | **Claude** | the usage endpoint behind `/usage`, using the token Claude Code stored | transcripts in `projects/`: tokens weighted by model price, calibrated on your live weekly %. **Estimated**, shown as `~` |
 | **Codex** | the usage endpoint behind `/status`, using `auth.json` | session logs in `sessions/`, which record every limit status the server sent. **Exact** |
+| **Muse** | `muse usage --json`, the Muse CLI's own allowance report | SlopMaxxer's own readings only |
 
 After that, SlopMaxxer records its own readings every ~2 minutes and uses those.
 If a live read fails (a 429, an expired token), the account keeps its last reading, flagged as stale.
@@ -196,7 +198,7 @@ If a live read fails (a 429, an expired token), the account keeps its last readi
 ## 🔒 is this safe?
 
 - **Read-only.** It never refreshes, rewrites or moves a credential, so it can't break your CLI logins.
-- **Local only.** The server binds to `127.0.0.1`. Your tokens only ever go to Anthropic and OpenAI, the same as with the CLIs.
+- **Local only.** The server binds to `127.0.0.1`. Your tokens only ever go to Anthropic and OpenAI, the same as with the CLIs. Muse numbers come from the Muse CLI itself, so that token never leaves it.
 - **Not an account switcher.** It tells you where to go. You decide whether you go.
 - **Zero dependencies.** Nothing in `node_modules` can go wrong, because there is no `node_modules`.
 
@@ -246,6 +248,7 @@ See [the decision model](public/guidance.js) and [scenario tests](test/guidance.
   "pollSeconds": 120,
   "extraClaudeDirs": ["D:/accounts/claude-side"],
   "extraCodexDirs": [],
+  "extraMuseDirs": [],
   "ignoreDirs": ["C:/Users/me/.claude-old"],
   "nicknames": { "claude:me@work.com": "work", "codex:me@gmail.com": "personal" }
 }

@@ -1,5 +1,5 @@
 // Runtime snapshot contract for /api/slop. Decisions in public/guidance.js are shared by CLI/UI.
-export type Provider = 'claude' | 'codex';
+export type Provider = 'claude' | 'codex' | 'muse';
 export type Status = 'available' | 'expiring' | 'ready' | 'limited' | 'restricted' | 'blocked' | 'checking' | 'stale' | 'unknown';
 export interface RateEvidence {
   confidence: 'learning' | 'observed';

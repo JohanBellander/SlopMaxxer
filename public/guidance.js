@@ -164,7 +164,7 @@ export function derive(snap, options = {}) {
     } else if (blocked.length) verdict = { word: 'Cooldown.', arrow: '▼', tone: 'warn',
       why: `${usedUp}No other account has confirmed capacity; refresh to check.` };
     else verdict = { word: selected.length ? 'Refresh before deciding.' : 'No matching accounts.', arrow: '?', tone: 'muted',
-      why: selected.length ? 'Readings are missing, stale, or awaiting reset confirmation.' : 'Log in with Claude Code or Codex, or change the provider filter.' };
+      why: selected.length ? 'Readings are missing, stale, or awaiting reset confirmation.' : 'Log in with Claude Code, Codex or Muse, or change the provider filter.' };
   }
   const sorted = accounts.slice().sort((a, b) => (a.id === next?.id ? -1 : b.id === next?.id ? 1 : a.pri - b.pri || b.routeScore - a.routeScore || a.id.localeCompare(b.id)));
   return { now, accounts, sorted, next, avoid: accounts.filter(a => !a.usable), verdict,

@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { SLOP_HOME } from './discover.mjs';
+import { SLOP_HOME, defaultMuseDir } from './discover.mjs';
 import { derive } from '../public/slop.js';
 
 const EVENTS_FILE = path.join(SLOP_HOME, 'events.jsonl');
@@ -42,8 +42,14 @@ export function dailyFromSamples(samples, now = Date.now()) {
 }
 
 function launchCommand(a) {
-  const isDefault = (a.dirs || [a.dir]).some((d) => d && path.resolve(d) === path.join(os.homedir(), `.${a.provider}`));
+  const defaultDir = a.provider === 'muse' ? defaultMuseDir() : path.join(os.homedir(), `.${a.provider}`);
+  const isDefault = (a.dirs || [a.dir]).some((d) => d && path.resolve(d) === path.resolve(defaultDir));
   if (isDefault || !a.dir) return a.provider;
+  if (a.provider === 'muse') {
+    if (path.basename(a.dir).toLowerCase() !== 'muse') return a.provider;
+    const root = path.dirname(a.dir);
+    return process.platform === 'win32' ? `$env:XDG_CONFIG_HOME="${root}"; muse` : `XDG_CONFIG_HOME="${root}" muse`;
+  }
   const env = a.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
   return process.platform === 'win32' ? `$env:${env}="${a.dir}"; ${a.provider}` : `${env}="${a.dir}" ${a.provider}`;
 }

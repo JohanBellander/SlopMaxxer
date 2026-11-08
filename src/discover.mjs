@@ -1,4 +1,4 @@
-// Finds every Claude Code / Codex install on this machine, the way T3 Code does:
+// Finds every Claude Code / Codex / Muse install on this machine, the way T3 Code does:
 // default homes, env overrides (CLAUDE_CONFIG_DIR / CODEX_HOME), any ~/.claude-* / ~/.codex-*
 // sibling dirs people use for extra accounts, plus extra paths from ~/.slopmaxxer/config.json.
 import fs from 'node:fs';
@@ -25,15 +25,27 @@ function isClaudeHome(dir) {
 function isCodexHome(dir) {
   return exists(path.join(dir, 'auth.json'));
 }
+function isMuseHome(dir) {
+  return path.basename(dir).toLowerCase() === 'muse' && exists(path.join(dir, 'auth.json'));
+}
+
+/** Where the Muse CLI keeps its login: $XDG_CONFIG_HOME/muse, else ~/.config/muse. */
+export function defaultMuseDir() {
+  return process.env.XDG_CONFIG_HOME
+    ? path.join(path.resolve(process.env.XDG_CONFIG_HOME), 'muse')
+    : path.join(os.homedir(), '.config', 'muse');
+}
 
 export function discoverInstalls(config = loadConfig()) {
   const home = os.homedir();
-  const candidates = { claude: new Set(), codex: new Set() };
+  const candidates = { claude: new Set(), codex: new Set(), muse: new Set() };
 
   candidates.claude.add(path.join(home, '.claude'));
   candidates.codex.add(path.join(home, '.codex'));
   if (process.env.CLAUDE_CONFIG_DIR) candidates.claude.add(path.resolve(process.env.CLAUDE_CONFIG_DIR));
   if (process.env.CODEX_HOME) candidates.codex.add(path.resolve(process.env.CODEX_HOME));
+  candidates.muse.add(defaultMuseDir());
+  candidates.muse.add(path.join(home, '.config', 'muse'));
 
   // Sibling dirs: ~/.claude-work, ~/.claude_personal, ~/.codex2, ...
   for (const scanRoot of [home, path.join(home, '.config')]) {
@@ -48,6 +60,7 @@ export function discoverInstalls(config = loadConfig()) {
 
   for (const p of config.extraClaudeDirs || []) candidates.claude.add(path.resolve(p));
   for (const p of config.extraCodexDirs || []) candidates.codex.add(path.resolve(p));
+  for (const p of config.extraMuseDirs || []) candidates.muse.add(path.resolve(p));
 
   const ignored = new Set((config.ignoreDirs || []).map((p) => path.resolve(p).toLowerCase()));
   const out = [];
@@ -56,6 +69,9 @@ export function discoverInstalls(config = loadConfig()) {
   }
   for (const dir of candidates.codex) {
     if (!ignored.has(dir.toLowerCase()) && isCodexHome(dir)) out.push({ provider: 'codex', dir });
+  }
+  for (const dir of candidates.muse) {
+    if (!ignored.has(dir.toLowerCase()) && isMuseHome(dir)) out.push({ provider: 'muse', dir });
   }
   return out;
 }

@@ -2,7 +2,7 @@
 
 (Local checkout folder: `TokenMaxxer`; GitHub repo and npm package: `slopmaxxer`.)
 
-Local web dashboard (plus CLI) that finds every Claude Code and Codex login on the machine, reads each
+Local web dashboard (plus CLI) that finds every Claude Code, Codex and Muse login on the machine, reads each
 account's applicable limits, and explains remaining capacity, upcoming resets, and a
 "next task →" account to route work to. Runs on 127.0.0.1 only, read-only on credentials. See `README.md`
 for the user-facing feature list and guidance rules.
@@ -16,8 +16,8 @@ for the user-facing feature list and guidance rules.
 ## Layout
 ```
 bin/slopmaxxer.mjs      CLI: serve (default) · status [--json] · accounts; flags --port --no-open --demo
-src/discover.mjs        finds installs (~/.claude*, ~/.codex*, CLAUDE_CONFIG_DIR, CODEX_HOME, ~/.slopmaxxer/config.json)
-src/providers/          claude.mjs · codex.mjs — live limit reads via the CLIs' own (undocumented) usage endpoints
+src/discover.mjs        finds installs (~/.claude*, ~/.codex*, ~/.config/muse, CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_CONFIG_HOME, ~/.slopmaxxer/config.json)
+src/providers/          claude.mjs · codex.mjs — live limit reads via the CLIs' own (undocumented) usage endpoints; muse.mjs — via `muse usage --json` (token stays in the Muse CLI)
 src/collect.mjs         polls (on demand, ≥120s apart, only while a dashboard is visible), dedupes logins, stores readings
 src/backfill.mjs        7-day history from Codex session logs (exact) and Claude transcripts (estimated)
 src/snapshot.mjs        builds the SlopSnapshot the UI eats + the event log diff
@@ -60,7 +60,7 @@ Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CON
 
 ## Ways to hurt yourself
 - **Never write to credential files** (`.credentials.json`, `auth.json`) or refresh tokens — read-only is a core promise.
-  Tokens must only ever be sent to Anthropic/OpenAI.
+  Tokens must only ever be sent to Anthropic/OpenAI. Muse usage comes from the `muse usage` subprocess; never read its token values.
 - The server must keep binding to `127.0.0.1`, never `0.0.0.0`.
 - Running without `--demo` reads your real logins and calls live usage endpoints; prefer `--demo` while developing.
   Real state is written to `~/.slopmaxxer/` (history.jsonl, events.jsonl, state.json) — don't commit or delete it.
