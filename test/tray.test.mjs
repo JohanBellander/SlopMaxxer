@@ -62,6 +62,10 @@ test('the tray nods the urgent verdict arrow like the dashboard', () => {
   const ps = fs.readFileSync(TRAY_SCRIPT, 'utf8');
   // Same trigger as the dashboard's .urgent verdict: a next account expiring.
   assert.match(ps, /next\.status -eq 'expiring'/);
+  // Dashboard proportions at tray size: taller triangles, a tight gap, a 2px nod
+  // (the dashboard's 5px rise at ~60px verdict text, scaled down).
+  assert.match(ps, /fontVerdictArrow/);
+  assert.match(ps, /Round\(2 \* \$lift\)/);
   // 1.5s nod cycle, like the dashboard's `urge` keyframes, driven by its own timer.
   assert.match(ps, /% 1500\) \/ 1500/);
   assert.match(ps, /Start-VerdictNod/);

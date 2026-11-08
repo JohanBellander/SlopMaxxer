@@ -27,6 +27,9 @@ $script:dot = [char]0x00B7
 $script:arrowR = [char]0x2192
 $script:fontTitle = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
 $script:fontVerdict = New-Object System.Drawing.Font('Consolas', 14, [System.Drawing.FontStyle]::Bold)
+# The dashboard's triangles stand ~0.9x the verdict cap height; at the word's own size
+# Consolas' fallback triangles only reach ~0.7x, so the arrow gets a larger font.
+$script:fontVerdictArrow = New-Object System.Drawing.Font('Consolas', 18, [System.Drawing.FontStyle]::Bold)
 $script:fontHead = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Bold)
 $script:fontBody = New-Object System.Drawing.Font('Consolas', 8.5)
 $script:fontSmall = New-Object System.Drawing.Font('Consolas', 8)
@@ -67,7 +70,7 @@ $form.Controls.Add($panel)
 # 1px border effect: shrink the panel inside the form by the form padding.
 $form.Padding = New-Object System.Windows.Forms.Padding(1)
 
-# Like the dashboard's urgent verdict: the arrow nods on a 1.5s cycle, rising 5px and
+# Like the dashboard's urgent verdict: the arrow nods on a 1.5s cycle, rising 2px and
 # fading toward 65% at the top (a Label has no opacity, so blend toward the background).
 $script:animTimer = New-Object System.Windows.Forms.Timer
 $script:animTimer.Interval = 40
@@ -75,7 +78,8 @@ $script:animTimer.Add_Tick({
   if (-not $form.Visible -or -not $script:verdictArrow) { $script:animTimer.Stop(); return }
   $phase = (((Get-Date) - $script:animStart).TotalMilliseconds % 1500) / 1500
   $lift = [math]::Sin([math]::PI * $phase)
-  $script:verdictArrow.Top = $script:verdictArrowY - [int][math]::Round(5 * $lift)
+  # The dashboard rises 5px at ~60px verdict text; 2px is the same nod at tray size.
+  $script:verdictArrow.Top = $script:verdictArrowY - [int][math]::Round(2 * $lift)
   $f = 1 - 0.35 * $lift; $t = $script:verdictTone; $b = $script:cBg
   $script:verdictArrow.ForeColor = [System.Drawing.Color]::FromArgb(
     [int]($t.R * $f + $b.R * (1 - $f)), [int]($t.G * $f + $b.G * (1 - $f)), [int]($t.B * $f + $b.B * (1 - $f)))
@@ -132,11 +136,13 @@ function Build-Popup {
     $v = $g.verdict
     $tone = $script:toneColor[[string]$v.tone]; if (-not $tone) { $tone = $script:cTxt }
     $null = Add-Label '> slop verdict' $script:fontSmall $script:cMuted 12 $y 376; $y += 16
-    $aw = Text-Width ([string]$v.arrow) $script:fontVerdict
-    $arrow = Add-Label ([string]$v.arrow) $script:fontVerdict $tone 12 $y $aw 22
-    $null = Add-Label ([string]$v.word) $script:fontVerdict $tone (18 + $aw) $y (370 - $aw) 22
+    $aw = Text-Width ([string]$v.arrow) $script:fontVerdictArrow
+    $arrow = Add-Label ([string]$v.arrow) $script:fontVerdictArrow $tone 12 ($y - 4) $aw 26
+    # Measured text width includes renderer padding the glyph ink does not fill;
+    # overlap it so the ink gap matches the dashboard's (~0.35x cap height).
+    $null = Add-Label ([string]$v.word) $script:fontVerdict $tone (4 + $aw) $y (384 - $aw) 22
     if ($g.next -and $g.next.status -eq 'expiring') {
-      $script:verdictArrow = $arrow; $script:verdictArrowY = $y; $script:verdictTone = $tone
+      $script:verdictArrow = $arrow; $script:verdictArrowY = $arrow.Top; $script:verdictTone = $tone
       Start-VerdictNod
     }
     $y += 24
