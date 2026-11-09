@@ -75,7 +75,7 @@ export async function fetchMuse({ dir }, { run = runMuseUsage } = {}) {
   }
   const a = usage?.allowance;
   if (!a) {
-    const reason = [usage?.reason, usage?.hint].filter(Boolean).join(' — ') || 'no allowance reported';
+    const reason = usage?.reason === 'server_sent_no_usage' ? 'No usage reported yet — run Muse once to check' : [usage?.reason, usage?.hint].filter(Boolean).join(' — ') || 'no allowance reported';
     return { ...base, error: reason, stale: true };
   }
 

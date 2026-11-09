@@ -51,6 +51,7 @@ export interface Account {
   note?: string | null;
   limitReached?: boolean;
   resetCredits?: number | null;
+  tokenExpiresAt?: string | null;
   extraUsage?: object | null;
   launch?: string;
   dirs?: string[];

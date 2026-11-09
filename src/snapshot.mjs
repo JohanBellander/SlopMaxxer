@@ -77,6 +77,7 @@ export function toSlopAccount(a, now = Date.now()) {
     historySource: a.daily?.source || null,
     // extras the design doesn't have, shown in the expanded row
     resetCredits: a.resetCredits ?? null,
+    tokenExpiresAt: iso(typeof a.tokenExpiresAt === 'number' ? a.tokenExpiresAt : Date.parse(a.tokenExpiresAt) || null),
     stale: !!a.stale,
     note: a.note || null,
     error: a.error || null,
