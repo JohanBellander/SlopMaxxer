@@ -5,6 +5,7 @@ export const CFG = {
   freshMinutes: 5, limitedPct: 10, meaningfulPct: 20, underusedGapPct: 20,
   sessionOpportunityMinutes: 60, weeklyOpportunityMinutes: 24 * 60,
   forecastHorizonMinutes: 120, switchMargin: 15,
+  paceMinElapsedMinutes: 2 * 24 * 60, paceEarlyMinutes: 24 * 60, tokenWarnMinutes: 24 * 60,
   timelineDays: 7, timelineCellMin: 120,
 };
 export const ACTIONS = {
@@ -85,6 +86,20 @@ export function deriveAccount(a, now, { model = 'any' } = {}) {
     w.remainingMin > 0 && w.remainingPct >= CFG.meaningfulPct && w.unusedGapPct >= CFG.underusedGapPct)
     .sort((x, y) => y.unusedGapPct - x.unusedGapPct)[0] || null;
   const interruption = applicable.filter(w => w.capRange).sort((x, y) => x.capRange[0] - y.capRange[0])[0] || null;
+  // Week-to-date average pace, not a burst: warn only 2+ days into the window, and only when
+  // that pace empties the weekly allowance a day or more before its reset.
+  const paced = applicable.filter(w => w.kind === 'weekly' && w.known && w.fresh && !w.idle && !w.expired && w.usedPct > 0 && w.remainingPct > CFG.limitedPct && w.remainingMin != null)
+    .map(w => ({ w, elapsed: w.durationMin - w.remainingMin, runOut: (w.durationMin - w.remainingMin) * w.remainingPct / w.usedPct }))
+    .filter(p => p.elapsed >= CFG.paceMinElapsedMinutes && p.runOut <= p.w.remainingMin - CFG.paceEarlyMinutes)
+    .sort((x, y) => x.runOut - y.runOut)[0] || null;
+  const paceWarning = paced ? `At this week's average pace, ${paced.w.label} runs out in about ${duration(paced.runOut)}, well before its reset in ${duration(paced.w.remainingMin)}. Spread long tasks to another account to avoid a dead stretch.` : null;
+  // A stored login token rots while its account sits unused; warn while it can still be refreshed.
+  const tokenAt = ms(a.tokenExpiresAt);
+  const tokenMin = Number.isFinite(tokenAt) ? (tokenAt - ms(now)) / 60000 : null;
+  const cli = a.provider === 'claude' ? 'Claude Code' : a.provider;
+  const tokenWarning = a.error || tokenMin == null || tokenMin > CFG.tokenWarnMinutes ? null
+    : tokenMin < 0 ? `Login token has expired — open ${cli} once and it refreshes itself.`
+    : `Login token expires in ${duration(tokenMin)} — open ${cli} once before then so this account stays checkable.`;
   const recoveryAt = blocked.length && blocked.every(w => w.resetsAt && !w.expired)
     ? new Date(Math.max(...blocked.map(w => ms(w.resetsAt)))).toISOString() : null;
   let status;
@@ -116,14 +131,16 @@ export function deriveAccount(a, now, { model = 'any' } = {}) {
   else reason = 'Capacity remains on the reported limits. Keep working if this account suits your task.';
   if (status === 'blocked' && opportunity) reason += ` ${opportunity.label} capacity remains, but another limit currently prevents using it.`;
   if (usable && interruption) reason += ` At your recent pace, ${interruption.label} may run out in ${duration(interruption.capRange[0])}–${duration(interruption.capRange[1])}; this is conditional, not a task-size guarantee.`;
+  if (usable && paceWarning) reason += ` ${paceWarning}`;
+  if (tokenWarning) reason += ` ${tokenWarning}`;
   const urgency = opportunity ? 100 + 30 * (1 - opportunity.remainingMin / (opportunity.kind === 'session' ? CFG.sessionOpportunityMinutes : CFG.weeklyOpportunityMinutes)) : underused ? 20 + underused.unusedGapPct : 0;
-  const routeScore = usable ? (headroom || 0) * .4 + urgency - (status === 'limited' ? 60 : 0) - (status === 'restricted' ? 80 : 0) : -1000;
+  const routeScore = usable ? (headroom || 0) * .4 + urgency - (status === 'limited' ? 60 : 0) - (status === 'restricted' ? 80 : 0) - (paceWarning ? 15 : 0) : -1000;
   const absent = deriveWindow(null, now);
   return { ...a, windows, applicable, five: windows.find(w => w.kind === 'session') || absent,
     week: windows.find(w => w.kind === 'weekly') || absent, slug: `${a.provider}/${a.planSlug || 'account'}`,
     status, ...ACTIONS[status], usable, headroom, limiting, opportunity: usable ? opportunity : null,
     interruption: usable ? interruption : null, restrictions, recoveryAt: status === 'blocked' ? recoveryAt : null,
-    reason, routeScore, fresh, events: [],
+    reason, routeScore, fresh, paceWarning: usable ? paceWarning : null, tokenWarning, events: [],
   };
 }
 
@@ -139,15 +156,22 @@ export function derive(snap, options = {}) {
   const selected = accounts.filter(matches);
   const allBlocked = selected.length > 0 && selected.every(a => a.status === 'blocked');
   const recoveries = selected.filter(a => a.recoveryAt).map(a => a.recoveryAt).sort();
+  const credits = selected.filter(a => a.resetCredits > 0)
+    .map(a => `${a.slug} has ${a.resetCredits} reset credit${a.resetCredits === 1 ? '' : 's'}`).join('; ');
+  const creditsWhy = credits ? ` ${credits} — not assumed redeemed.` : '';
+  const unverified = selected.filter(a => a.status === 'unknown' || a.status === 'stale' || a.status === 'checking');
+  const others = next ? selected.filter(a => a.id !== next.id && !candidates.some(c => c.id === a.id)) : [];
+  const backupWhy = next && candidates.length === 1 && others.length
+    ? ` No confirmed backup — ${others.map(a => a.slug).join(', ')} ${others.length === 1 ? 'is' : 'are'} unavailable or unverified; check them before you need a fallback.` : '';
   let verdict;
   if (next) verdict = {
     word: ['expiring', 'underused'].includes(next.status) ? 'Speed up.' : next.status === 'limited' ? 'Slow down.' : 'Keep cooking.',
     arrow: next.status === 'expiring' ? '▲▲' : next.status === 'underused' ? '▲' : next.status === 'limited' ? '▼' : '▶',
     tone: ['expiring', 'underused'].includes(next.status) ? 'pink' : next.status === 'limited' ? 'warn' : 'ok',
-    why: next.status === 'expiring' ? `The reset clock is ticking. ${next.reason}` : next.reason,
+    why: (next.status === 'expiring' ? `The reset clock is ticking. ${next.reason}` : next.reason) + backupWhy,
   };
   else if (allBlocked) verdict = { word: 'Cooldown.', arrow: '▼', tone: 'warn',
-    why: recoveries.length ? `Earliest known availability: ${recoveries[0]}. Confirm after reset.` : 'Reset time is unknown. Refresh to check availability.' };
+    why: (recoveries.length ? `Earliest known availability: ${recoveries[0]}. Confirm after reset.` : 'Reset time is unknown. Refresh to check availability.') + creditsWhy };
   else if (selected.some(a => a.status === 'restricted')) verdict = { word: 'Check model limits.', arrow: '▶', tone: 'warn', why: 'General capacity remains, but a model-specific limit needs attention.' };
   else {
     // No confirmed pick. Still give direction from last-known readings instead of a bare "refresh".
@@ -162,7 +186,7 @@ export function derive(snap, options = {}) {
           ? 'has passed a reset, so capacity should be back'
           : `had ${Math.round(lastKnown.headroom)}% left ${duration(age)} ago`}. Refresh to confirm before a long task.` };
     } else if (blocked.length) verdict = { word: 'Cooldown.', arrow: '▼', tone: 'warn',
-      why: `${usedUp}No other account has confirmed capacity; refresh to check.` };
+      why: `${usedUp}No other account has confirmed capacity.${unverified.length ? ` ${unverified.map(a => a.slug).join(', ')} unverified, not confirmed empty — refresh or open their CLI to check.` : ''}` + creditsWhy };
     else verdict = { word: selected.length ? 'Refresh before deciding.' : 'No matching accounts.', arrow: '?', tone: 'muted',
       why: selected.length ? 'Readings are missing, stale, or awaiting reset confirmation.' : 'Log in with Claude Code, Codex or Muse, or change the provider filter.' };
   }

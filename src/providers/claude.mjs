@@ -91,6 +91,8 @@ export async function fetchClaude({ dir }, { home = SLOP_HOME, request = fetch }
     dir,
     ...id,
     ...planOf(creds),
+    // Read-only heads-up so guidance can warn before this login rots; never refreshed by us.
+    tokenExpiresAt: Number.isFinite(creds?.expiresAt) ? creds.expiresAt : null,
   };
   if (!creds?.accessToken) return { ...base, error: 'Not logged in (no OAuth token)' };
   const local = localClaudeUsage(meta);

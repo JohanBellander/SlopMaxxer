@@ -71,6 +71,15 @@ test('fetchMuse surfaces a missing allowance and CLI failures as stale errors', 
   assert.match(b.error, /ENOENT/);
 });
 
+test('fetchMuse translates server_sent_no_usage into a checkable state, not a raw server code', async (t) => {
+  const dir = museHome(t);
+  const run = async () => JSON.stringify({ schemaVersion: 1, allowance: null, reason: 'server_sent_no_usage', hint: 'the server sent no usage data' });
+  const result = await fetchMuse({ dir }, { run });
+  assert.equal(result.stale, true);
+  assert.match(result.error, /No usage reported yet — run Muse once to check/);
+  assert.doesNotMatch(result.error, /server_sent_no_usage/);
+});
+
 test('fetchMuse does not call the CLI when no Meta login is stored', async (t) => {
   const dir = museHome(t, null);
   fs.writeFileSync(path.join(dir, 'auth.json'), JSON.stringify({ schema_version: 1, providers: {} }));

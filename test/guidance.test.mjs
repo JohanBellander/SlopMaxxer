@@ -194,6 +194,49 @@ test('calendar nudges require a meaningful gap and honor actual window duration'
  assert.equal(vm([a([w('session',9,1.1),w('weekly',95,100)])]).next.status,'limited');
  assert.equal(vm([a([w('session',9,1.1),w('weekly',100,100)])]).next,null);
 });
+test('cooldown names unverified accounts and banked reset credits, not just the capped one',()=>{
+ const codex=a([w('weekly',100,47)],{id:'codex',provider:'codex',planSlug:'business',resetCredits:2});
+ const claude=a([],{id:'claude',planSlug:'team-5x',error:'Token expired'});
+ const muse=a([],{id:'muse',provider:'muse',planSlug:'subscription',error:'No usage reported yet'});
+ const result=vm([codex,claude,muse]);
+ assert.equal(result.next,null); assert.equal(result.verdict.word,'Cooldown.');
+ assert.match(result.verdict.why,/codex\/business used up until/);
+ assert.match(result.verdict.why,/claude\/team-5x/); assert.match(result.verdict.why,/muse\/subscription/);
+ assert.match(result.verdict.why,/unverified, not confirmed empty/);
+ assert.match(result.verdict.why,/2 reset credits/);
+});
+test('a single confirmed account warns that no backup is verified',()=>{
+ const healthy=a([w('weekly',40,100)],{id:'muse',provider:'muse',planSlug:'subscription'});
+ const claude=a([],{id:'claude',planSlug:'team-5x',error:'Token expired'});
+ const codex=a([w('weekly',100,47)],{id:'codex',provider:'codex',planSlug:'business'});
+ const result=vm([healthy,claude,codex]);
+ assert.equal(result.next.id,'muse');
+ assert.match(result.verdict.why,/No confirmed backup/);
+ assert.match(result.verdict.why,/claude\/team-5x/); assert.match(result.verdict.why,/codex\/business/);
+ assert.doesNotMatch(vm([healthy]).verdict.why,/No confirmed backup/);
+});
+test('weekly pace warning projects an early run-out without disqualifying the account',()=>{
+ const hot=vm([a([w('weekly',70,72)])]);
+ assert.equal(hot.accounts[0].status,'available'); assert.equal(hot.next.id,'a');
+ assert.match(hot.accounts[0].paceWarning,/runs out in about 1d 17h/);
+ assert.match(hot.accounts[0].reason,/runs out in about/);
+ assert.equal(vm([a([w('weekly',40,100)])]).accounts[0].paceWarning,null);
+ assert.equal(vm([a([w('weekly',40,144)])]).accounts[0].paceWarning,null);
+});
+test('login token expiry warns a day ahead and stays quiet beyond that',()=>{
+ const soon=vm([a([w('weekly',40,100)],{tokenExpiresAt:now+3*H})]).accounts[0];
+ assert.match(soon.tokenWarning,/token expires in 3h/); assert.match(soon.reason,/token expires in 3h/);
+ assert.equal(soon.status,'available');
+ const later=vm([a([w('weekly',20,100)],{tokenExpiresAt:now+72*H})]).accounts[0];
+ assert.equal(later.tokenWarning,null);
+ const gone=vm([a([w('weekly',20,100)],{stale:true,tokenExpiresAt:now-H})]).accounts[0];
+ assert.match(gone.tokenWarning,/token has expired/);
+});
+test('adapter carries login token expiry into the snapshot as ISO',()=>{
+ const normalized=toSlopAccount({id:'a',provider:'claude',observedAt:now,tokenExpiresAt:now+H,windows:[]},now);
+ assert.equal(normalized.tokenExpiresAt,new Date(now+H).toISOString());
+ assert.equal(toSlopAccount({id:'a',provider:'claude',observedAt:now,windows:[]},now).tokenExpiresAt,null);
+});
 test('one account used up and another only stale still gives direction',()=>{
  const used=a([w('session',10,4),w('weekly',100,100)],{id:'codex',provider:'codex',planSlug:'business'});
  const stale=a([w('session',20,3,{observedAt:now-30*60000}),w('weekly',38,100,{observedAt:now-30*60000})],{id:'claude',planSlug:'team-5x',stale:true});

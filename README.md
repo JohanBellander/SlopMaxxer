@@ -227,6 +227,11 @@ The provider filter constrains routing. A known model restriction is surfaced
 rather than silently recommending an unverified alternative. Percentages from different plans are never
 added together or presented as interchangeable token counts.
 
+Warnings also look ahead: a weekly window on pace to empty a day or more before its reset, a stored
+login token expiring within a day, and having no second verified account are each called out while
+there is still time to act. A Cooldown verdict names the unverified accounts and any banked reset
+credits, so "unknown" is never presented as "empty."
+
 Forecasts use at least 30 minutes and four observations from the same window, without gaps over ten minutes.
 Only supported cap estimates within two hours are shown, explicitly conditional on the recent pace continuing.
 Weekly demand estimates need at least five completed UTC days with 18 hours of observed coverage each,

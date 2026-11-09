@@ -36,6 +36,20 @@ test('rejects wrong-account, old, future, malformed and reset local readings', (
   }
 });
 
+test('fetchClaude surfaces the stored token expiry without touching credentials', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-exp-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const expiresAt = Date.now() + 3600_000;
+  const creds = path.join(dir, '.credentials.json');
+  fs.writeFileSync(creds, JSON.stringify({ claudeAiOauth: { accessToken: 'fake', expiresAt } }));
+  const before = fs.readFileSync(creds, 'utf8');
+  const meta = metadata(Date.now());
+  const request = async () => new Response(JSON.stringify(meta.cachedUsageUtilization.utilization));
+  const result = await fetchClaude({ dir }, { home: path.join(dir, 'state'), request });
+  assert.equal(result.tokenExpiresAt, expiresAt);
+  assert.equal(fs.readFileSync(creds, 'utf8'), before);
+});
+
 test('custom Claude home uses local cache without network or writes, then falls back when old', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-local-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
