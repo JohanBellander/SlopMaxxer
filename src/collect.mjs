@@ -9,7 +9,7 @@ import { fetchCodex } from './providers/codex.mjs';
 import { fetchMuse } from './providers/muse.mjs';
 import { analyzeAccount, pickNext } from './pace.mjs';
 import { recentRate, completedWindows, weeklyOutlook } from './history.mjs';
-import { dailyHistory } from './backfill.mjs';
+import { dailyHistory, claudeDiskUsage, codexDiskSamples } from './backfill.mjs';
 import { log, since } from './log.mjs';
 
 const FETCHERS = { claude: fetchClaude, codex: fetchCodex, muse: fetchMuse };
@@ -100,6 +100,25 @@ function safeDaily(a, now) {
 
 const accountId = (a) =>
   crypto.createHash('sha1').update(`${a.provider}:${a.accountKey || a.dir}`).digest('hex').slice(0, 10);
+
+/**
+ * Read local transcripts and session logs once, so the first poll doesn't. Only reads files on
+ * this machine (no provider requests); later polls parse just what was appended since.
+ */
+export function warmHistory() {
+  const t = performance.now();
+  let records = 0;
+  for (const inst of discoverInstalls(loadConfig())) {
+    try {
+      if (inst.provider === 'claude') records += claudeDiskUsage(inst.dir).length;
+      if (inst.provider === 'codex') records += codexDiskSamples(inst.dir).length;
+    } catch (e) {
+      log.warn('backfill.warm_failed', { provider: inst.provider, dir: inst.dir, error: e });
+    }
+  }
+  loadHistory();
+  log.info('backfill.warmed', { ms: since(t), records });
+}
 
 export async function collect() {
   const config = loadConfig();
