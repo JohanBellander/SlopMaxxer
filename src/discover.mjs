@@ -4,13 +4,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { log } from './log.mjs';
 
 export const SLOP_HOME = process.env.SLOPMAXXER_HOME || path.join(os.homedir(), '.slopmaxxer');
 
 export function loadConfig() {
   try {
     return JSON.parse(fs.readFileSync(path.join(SLOP_HOME, 'config.json'), 'utf8'));
-  } catch {
+  } catch (e) {
+    if (e.code !== 'ENOENT') log.warn('config.unreadable', { error: e });
     return {};
   }
 }
@@ -73,5 +75,10 @@ export function discoverInstalls(config = loadConfig()) {
   for (const dir of candidates.muse) {
     if (!ignored.has(dir.toLowerCase()) && isMuseHome(dir)) out.push({ provider: 'muse', dir });
   }
+  const found = new Set(out.map((i) => i.dir));
+  log.debug('discover', {
+    found: out.map((i) => `${i.provider} ${i.dir}`),
+    skipped: Object.entries(candidates).flatMap(([p, dirs]) => [...dirs].filter((d) => !found.has(d)).map((d) => `${p} ${d}${ignored.has(d.toLowerCase()) ? ' (ignored)' : ''}`)),
+  });
   return out;
 }

@@ -10,6 +10,7 @@ import { fetchMuse } from './providers/muse.mjs';
 import { analyzeAccount, pickNext } from './pace.mjs';
 import { recentRate, completedWindows, weeklyOutlook } from './history.mjs';
 import { dailyHistory } from './backfill.mjs';
+import { log, since } from './log.mjs';
 
 const FETCHERS = { claude: fetchClaude, codex: fetchCodex, muse: fetchMuse };
 const HISTORY_FILE = path.join(SLOP_HOME, 'history.jsonl');
@@ -20,11 +21,15 @@ let history = null;
 function loadHistory() {
   if (history) return history;
   history = [];
+  let unparsable = 0;
   try {
     for (const line of fs.readFileSync(HISTORY_FILE, 'utf8').split('\n')) {
-      if (line) try { history.push(JSON.parse(line)); } catch { /* skip */ }
+      if (line) try { history.push(JSON.parse(line)); } catch { unparsable++; }
     }
-  } catch { /* first run */ }
+  } catch (e) {
+    if (e.code !== 'ENOENT') log.warn('history.read_failed', { error: e });
+  }
+  log.info('history.loaded', { samples: history.length, unparsable });
   return history;
 }
 
@@ -35,6 +40,7 @@ function saveSamples(samples) {
   history = h.filter((s) => s.t >= cutoff);
   fs.mkdirSync(SLOP_HOME, { recursive: true });
   fs.writeFileSync(HISTORY_FILE, history.map((s) => JSON.stringify(s)).join('\n') + '\n');
+  log.debug('history.saved', { added: samples.length, kept: history.length, dropped: h.length - history.length });
 }
 
 /** Our own weekly readings for an account, for the 7-day history. */
@@ -59,7 +65,12 @@ function fromLastSamples(a, now) {
   const latest = {};
   for (const s of loadHistory()) if (s.id === a.id && (!latest[s.kind] || s.t > latest[s.kind].t)) latest[s.kind] = s;
   const kinds = Object.values(latest).filter((s) => now - s.t < 12 * 3_600_000);
-  if (!kinds.length) return null;
+  const ageMin = (list) => (list.length ? Math.round((now - Math.max(...list.map((s) => s.t))) / 60000) : null);
+  if (!kinds.length) {
+    log.warn('account.no_fallback', { id: a.id, provider: a.provider, error: a.error, newestSampleAgeMin: ageMin(Object.values(latest)) });
+    return null;
+  }
+  log.info('account.fallback_samples', { id: a.id, provider: a.provider, error: a.error, kinds: kinds.map((s) => s.kind), ageMin: ageMin(kinds) });
   const windows = kinds.map((s) => ({
     kind: s.kind,
     label: s.kind === 'session' ? (a.provider === 'muse' ? 'Window' : '5-hour') : s.kind === 'weekly' ? 'Weekly' : s.kind.replaceAll('_', ' '),
@@ -75,10 +86,14 @@ function fromLastSamples(a, now) {
 }
 
 function safeDaily(a, now) {
+  const t = performance.now();
   try {
-    return dailyHistory(a, ownWeeklyReadings(a.id), now);
+    const daily = dailyHistory(a, ownWeeklyReadings(a.id), now);
+    log.debug('backfill.done', { id: a.id, provider: a.provider, ms: since(t), source: daily?.source });
+    return daily;
   } catch (e) {
     console.error('[slopmaxxer] reading history from disk failed:', e.message);
+    log.error('backfill.failed', { id: a.id, provider: a.provider, error: e });
     return null;
   }
 }
@@ -90,11 +105,28 @@ export async function collect() {
   const config = loadConfig();
   const installs = discoverInstalls(config);
   const now = Date.now();
+  const t0 = performance.now();
+  log.info('collect.start', { installs: installs.map((i) => `${i.provider} ${i.dir}`) });
 
   const raw = await Promise.all(
-    installs.map((inst) =>
-      FETCHERS[inst.provider](inst).catch((e) => ({ provider: inst.provider, dir: inst.dir, error: e.message })),
-    ),
+    installs.map(async (inst) => {
+      const t = performance.now();
+      let a;
+      try {
+        a = await FETCHERS[inst.provider](inst);
+      } catch (e) {
+        log.error('fetch.threw', { provider: inst.provider, dir: inst.dir, ms: since(t), error: e });
+        a = { provider: inst.provider, dir: inst.dir, error: e.message };
+      }
+      const outcome = a.error ? 'error' : a.stale ? 'stale' : 'live';
+      log[outcome === 'live' ? 'info' : 'warn']('fetch.done', {
+        provider: inst.provider, dir: inst.dir, id: accountId(a), ms: since(t), outcome,
+        plan: a.plan, error: a.error, note: a.note, limitReached: a.limitReached,
+        observedAgeMin: a.observedAt ? Math.round((now - a.observedAt) / 60000) : null,
+        windows: (a.windows || []).map((w) => ({ kind: w.kind, used: w.usedPercent, resetsInMin: w.resetsAt ? Math.round((w.resetsAt - now) / 60000) : null, idle: w.idle })),
+      });
+      return a;
+    }),
   );
 
   // The same login can live in two dirs — show it once, prefer the one with data.
@@ -104,6 +136,7 @@ export async function collect() {
     const prev = byId.get(id);
     if (!prev || ((!prev.windows?.length || prev.stale || prev.error) && a.windows?.length && !a.stale && !a.error)) byId.set(id, { ...a, id, dirs: [...(prev?.dirs || []), a.dir] });
     else prev.dirs.push(a.dir);
+    if (prev) log.debug('account.deduped', { id, provider: a.provider, dirs: byId.get(id).dirs, kept: byId.get(id).dir });
   }
 
   const nicknames = config.nicknames || {};
@@ -135,6 +168,10 @@ export async function collect() {
   if (samples.length) saveSamples(samples);
 
   const next = pickNext(accounts, now);
+  log.info('collect.done', {
+    ms: since(t0), installs: installs.length, accounts: accounts.length, samples: samples.length, nextUp: next?.id || null,
+    summary: accounts.map((a) => `${a.provider}:${a.id} ${a.error ? 'error' : a.stale ? 'stale' : 'live'}`),
+  });
   return {
     generatedAt: now,
     accounts: accounts.sort((a, b) => a.provider.localeCompare(b.provider) || (a.email || '').localeCompare(b.email || '')),

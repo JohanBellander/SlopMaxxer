@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SLOP_HOME, defaultMuseDir } from './discover.mjs';
 import { derive } from '../public/slop.js';
+import { log } from './log.mjs';
 
 const EVENTS_FILE = path.join(SLOP_HOME, 'events.jsonl');
 const STATE_FILE = path.join(SLOP_HOME, 'state.json');
@@ -139,6 +140,7 @@ export function buildSlopSnapshot(collected, { ms = null, persist = true } = {})
   if (persist) {
     const fresh = diffEvents(prev.version === 2 ? prev : {}, vm, nowIso);
     if (fresh.length) {
+      for (const e of fresh) log.info('snapshot.event', { level: e.level, accountId: e.accountId, msg: e.msg });
       events = [...events, ...fresh].slice(-EVENTS_KEEP);
       fs.mkdirSync(SLOP_HOME, { recursive: true });
       fs.writeFileSync(EVENTS_FILE, events.map((e) => JSON.stringify(e)).join('\n') + '\n');
