@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fetchMuse, planOf } from '../src/providers/muse.mjs';
+import { fetchMuse, planOf, museBinary } from '../src/providers/muse.mjs';
 import { discoverInstalls } from '../src/discover.mjs';
 import { toSlopAccount } from '../src/snapshot.mjs';
 
@@ -114,4 +114,22 @@ test('planOf slugs the Muse tier and tolerates a missing tier', () => {
   assert.deepEqual(planOf('Muse Code Power Usage'), { plan: 'Muse Code Power Usage', planSlug: 'muse-code-power-usage' });
   assert.deepEqual(planOf(null, true), { plan: 'Subscription', planSlug: 'subscription' });
   assert.deepEqual(planOf(null, false), { plan: null, planSlug: null });
+});
+
+test('museBinary finds the binary the Windows launcher would run, else defers to muse', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-musebin-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const other = path.join(dir, 'other');
+  fs.mkdirSync(other);
+  const PATH = [other, dir].join(path.delimiter);
+  assert.equal(museBinary(PATH), null); // no muse.cmd anywhere
+  fs.writeFileSync(path.join(dir, 'muse.cmd'), '@echo off');
+  assert.equal(museBinary(PATH), null); // no .muse-version
+  fs.writeFileSync(path.join(dir, '.muse-version'), '1.4.18-R8587.1\r\n');
+  assert.equal(museBinary(PATH), null); // version named, binary missing
+  const bin = path.join(dir, 'muse-bin-1.4.18-R8587.1.exe');
+  fs.writeFileSync(bin, '');
+  assert.equal(museBinary(PATH), bin);
+  fs.writeFileSync(path.join(dir, '.muse-version'), '../evil');
+  assert.equal(museBinary(PATH), null); // only a well-formed version picks a file
 });

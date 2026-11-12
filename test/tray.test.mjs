@@ -37,8 +37,21 @@ test('the tray script is a drag-safe click NotifyIcon popup reading the snapshot
   assert.match(ps, /Add_MouseDown/);
   assert.match(ps, /Add_MouseUp/);
   assert.match(ps, /\$moved -le 8/);
-  assert.doesNotMatch(ps, /\$notify\.Add_MouseMove/);
-  assert.match(ps, /Invoke-RestMethod/);
+  // Hovering the icon may prefetch, but only a click opens the popup.
+  const hover = ps.match(/\$notify\.Add_MouseMove\(\{([\s\S]*?)\n\}\)/);
+  assert.ok(hover, 'hover prefetch handler');
+  assert.match(hover[1], /Start-Fetch/);
+  assert.doesNotMatch(hover[1], /Show-Popup|\.Show\(/);
+});
+
+test('the live tray never waits for the server on the UI thread', () => {
+  const ps = fs.readFileSync(TRAY_SCRIPT, 'utf8');
+  assert.match(ps, /GetStringAsync\(\$ApiUrl\)/);
+  assert.match(ps, /Complete-Fetch/);
+  assert.match(ps, /refreshing\.\.\./);
+  // The blocking fetch is kept only for -RenderTo snapshots.
+  const live = ps.slice(ps.indexOf('$notify = New-Object'));
+  assert.doesNotMatch(live, /Fetch-Data|Invoke-RestMethod/);
 });
 
 test('the tray popup shows the server-provided verdict instead of re-deciding it', () => {
