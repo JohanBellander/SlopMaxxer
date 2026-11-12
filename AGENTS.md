@@ -22,7 +22,8 @@ src/providers/          claude.mjs · codex.mjs — live limit reads via the CLI
 src/collect.mjs         polls (on demand, ≥120s apart, only while a dashboard is visible), dedupes logins, stores readings
 src/backfill.mjs        7-day history from Codex session logs (exact) and Claude transcripts (estimated)
 src/snapshot.mjs        builds the SlopSnapshot the UI eats + the event log diff
-src/server.mjs          127.0.0.1 server: /api/slop (index.html), /api/snapshot (classic.html + CLI), static files
+src/server.mjs          127.0.0.1 server: /api/slop (index.html), /api/snapshot (classic.html + CLI), /api/log (dashboard errors), static files
+src/log.mjs             local diagnostic JSONL log with redaction
 src/pace.mjs            raw-provider compatibility adapter (uses shared guidance)
 src/history.mjs         observed rates, weekly outlook coverage, completed-window bounds
 src/mock.mjs, demo.mjs  reference mock (6 accounts, all states) and --demo mode
@@ -45,7 +46,14 @@ docs/                   README screenshots
 | Terminal view / JSON | `node bin/slopmaxxer.mjs status` / `status --json` |
 | Which logins were found | `node bin/slopmaxxer.mjs accounts` |
 
-Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CONFIG_DIR`, `CODEX_HOME`.
+Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
+`SLOPMAXXER_LOG` (`debug|info|warn|error|off`, default `info`; off under `node --test`).
+
+## Diagnostic log
+`src/log.mjs` writes JSONL to `~/.slopmaxxer/logs/YYYY-MM-DD.jsonl` (14 days kept). Use `log.info('area.event', {...})`.
+Name accounts by hashed `id`, never by email; `redact()` scrubs token-ish keys, Bearer/JWT/key strings and emails as a
+backstop, not as permission to pass credentials in. The dashboard reports its own errors via `POST /api/log`.
+To see what happened: `node -e` over the file, e.g. filter `lvl` of `warn`/`error`.
 
 ## Conventions
 - `public/guidance.js` and `public/slop.js` are pure; keep them free of Node and DOM APIs.

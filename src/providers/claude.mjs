@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SLOP_HOME } from '../discover.mjs';
 import { cachedClaudeUsage } from '../claude-cache.mjs';
+import { log } from '../log.mjs';
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 
@@ -96,6 +97,12 @@ export async function fetchClaude({ dir }, { home = SLOP_HOME, request = fetch }
   };
   if (!creds?.accessToken) return { ...base, error: 'Not logged in (no OAuth token)' };
   const local = localClaudeUsage(meta);
+  const cache = meta?.cachedUsageUtilization;
+  log.debug('claude.local_cache', {
+    dir, used: !!local,
+    reason: local ? 'fresh' : !cache ? 'absent' : cache.accountUuid !== meta?.oauthAccount?.accountUuid ? 'other account' : Number.isFinite(cache.fetchedAtMs) ? `age ${Math.round((Date.now() - cache.fetchedAtMs) / 60000)}m or bad shape` : 'bad shape',
+    loginExpiresInMin: Number.isFinite(creds.expiresAt) ? Math.round((creds.expiresAt - Date.now()) / 60000) : null,
+  });
   if (!local && creds.expiresAt && creds.expiresAt < Date.now()) {
     return { ...base, error: 'Token expired — open Claude Code once and it refreshes itself', stale: true };
   }
@@ -111,6 +118,11 @@ export async function fetchClaude({ dir }, { home = SLOP_HOME, request = fetch }
       },
       signal: AbortSignal.timeout(15000),
     }),
+  });
+  log.debug('claude.reading', {
+    dir, source: reading.source || (reading.cached ? 'shared cache' : 'live'), hasUsage: !!reading.usage, error: reading.error,
+    ageMin: reading.fetchedAt ? Math.round((Date.now() - reading.fetchedAt) / 60000) : null,
+    retryInMin: reading.retryAt ? Math.round((reading.retryAt - Date.now()) / 60000) : null,
   });
   const retry = reading.error && reading.retryAt ? `; next attempt after ${new Date(reading.retryAt).toISOString()}` : '';
   if (!reading.usage) return { ...base, error: (reading.error || 'No recent Claude usage reading') + retry, stale: true };

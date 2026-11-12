@@ -3,6 +3,7 @@
 // to the newest rate_limits event in the local session logs.
 import fs from 'node:fs';
 import path from 'node:path';
+import { log } from '../log.mjs';
 
 const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
 
@@ -101,6 +102,7 @@ export async function fetchCodex({ dir }) {
   }
 
   let liveError = null;
+  const t0 = performance.now();
   try {
     const res = await fetch(USAGE_URL, {
       headers: {
@@ -113,6 +115,10 @@ export async function fetchCodex({ dir }) {
     if (res.ok) {
       const u = await res.json();
       const rl = u.rate_limit || {};
+      log.info('codex_api.ok', {
+        dir, ms: Math.round(performance.now() - t0), planType: u.plan_type, limitReached: !!rl.limit_reached,
+        windows: Object.keys(rl).filter((k) => k.endsWith('_window') && rl[k]), resetCredits: u.rate_limit_reset_credits?.available_count,
+      });
       return {
         ...base,
         email: u.email || base.email,
@@ -126,11 +132,15 @@ export async function fetchCodex({ dir }) {
       };
     }
     liveError = `OpenAI said HTTP ${res.status}`;
+    log.warn('codex_api.http_error', { dir, ms: Math.round(performance.now() - t0), status: res.status, retryAfter: res.headers.get('retry-after') });
   } catch (e) {
     liveError = e.message;
+    log.warn('codex_api.request_failed', { dir, ms: Math.round(performance.now() - t0), error: e });
   }
 
+  const t1 = performance.now();
   const logged = newestLoggedLimits(dir);
+  log.info('codex.session_log_fallback', { dir, found: !!logged, scanMs: Math.round(performance.now() - t1), ageMin: logged?.at ? Math.round((Date.now() - logged.at) / 60000) : null });
   if (!logged) return { ...base, error: liveError, stale: true };
   return {
     ...base,

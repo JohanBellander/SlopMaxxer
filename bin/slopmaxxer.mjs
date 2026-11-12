@@ -11,6 +11,7 @@ import { derive, windowSummary, forecastSummary } from '../public/guidance.js';
 import { shiftedMock } from '../src/mock.mjs';
 import { startServer } from '../src/server.mjs';
 import { startTray } from '../src/tray.mjs';
+import { log, logFile } from '../src/log.mjs';
 
 const args = process.argv.slice(2);
 const usage = `Usage: slopmaxxer [command] [options]
@@ -69,6 +70,21 @@ const opt = (name, dflt) => {
 const port = Number(opt('port', process.env.PORT || 4747));
 if (cmd === 'serve' && (!Number.isInteger(port) || port < 1 || port > 65535)) fail('Port must be a number from 1 to 65535.');
 
+const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+const startedAt = Date.now();
+log.info('process.start', { cmd, args: rest, version: VERSION, node: process.version, platform: `${process.platform} ${process.arch}`, cwd: process.cwd() });
+process.on('uncaughtException', (error) => {
+  log.error('process.uncaught_exception', { error });
+  console.error(error);
+  process.exit(1);
+});
+process.on('unhandledRejection', (error) => log.error('process.unhandled_rejection', { error }));
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => {
+  log.info('process.signal', { signal: sig });
+  process.exit(0);
+});
+process.once('exit', (code) => log.info('process.exit', { code, uptimeSec: Math.round((Date.now() - startedAt) / 1000), rssMb: Math.round(process.memoryUsage().rss / 1048576) }));
+
 const c = process.stdout.isTTY && !process.env.NO_COLOR
   ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, yel: (s) => `\x1b[33m${s}\x1b[0m`, grn: (s) => `\x1b[32m${s}\x1b[0m`, mag: (s) => `\x1b[35m${s}\x1b[0m` }
   : Object.fromEntries(['dim', 'bold', 'red', 'yel', 'grn', 'mag'].map((k) => [k, (s) => s]));
@@ -103,7 +119,10 @@ function openBrowser(url) {
   const [bin, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
     : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
   const child = spawn(bin, args, { stdio: 'ignore', detached: true, windowsHide: true });
-  child.on('error', () => console.error(`Could not open a browser. Open ${url} manually.`));
+  child.on('error', (error) => {
+    log.warn('browser.open_failed', { error });
+    console.error(`Could not open a browser. Open ${url} manually.`);
+  });
   child.unref();
 }
 
@@ -124,6 +143,7 @@ switch (cmd) {
           ? `\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`
           : url;
         console.log(`\nSlopMaxxer is ready\n\n  ${link}\n\nOpen the link in your browser (Ctrl+click in Windows Terminal).\nKeep this terminal open. Press Ctrl+C to stop.\n`);
+        if (log.enabled) console.log(c.dim(`Diagnostic log: ${logFile()}\n`));
         if (!flag('no-open')) openBrowser(url);
         if (!flag('no-tray') && startTray({ url })) console.log('Tray icon is on, bottom-right. Click it for allowances, double-click it for the dashboard.');
       },

@@ -14,7 +14,7 @@ const npm = process.env.npm_execpath;
 assert.ok(npm, 'Run this check with npm run test:package');
 function run(args, cwd = temp) {
   const result = spawnSync(process.execPath, [npm, ...args], {
-    cwd, encoding: 'utf8', timeout: 60000, windowsHide: true,
+    cwd, encoding: 'utf8', timeout: 60000, windowsHide: true, env: { ...process.env, SLOPMAXXER_HOME: join(temp, 'state') },
   });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
   return result.stdout;
