@@ -89,6 +89,14 @@ test('fetchMuse does not call the CLI when no Meta login is stored', async (t) =
   assert.match(result.error, /Not logged in/);
 });
 
+test('fetchMuse treats a Keychain-stored login (macOS) as logged in', async (t) => {
+  const dir = museHome(t, { user_email: 'me@gmail.com', subs_active: true, mechanism: 'oauth', storage: 'keychain' });
+  let calls = 0;
+  const result = await fetchMuse({ dir }, { run: async () => { calls++; return JSON.stringify({ schemaVersion: 1, allowance: null, reason: 'server_sent_no_usage' }); } });
+  assert.equal(calls, 1);
+  assert.doesNotMatch(result.error, /Not logged in/);
+});
+
 test('discoverInstalls finds Muse homes named muse with an auth.json', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-muse-disc-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
