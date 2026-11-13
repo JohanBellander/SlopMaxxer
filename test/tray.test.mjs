@@ -46,9 +46,13 @@ test('the tray script is a drag-safe click NotifyIcon popup reading the snapshot
 
 test('the live tray never waits for the server on the UI thread', () => {
   const ps = fs.readFileSync(TRAY_SCRIPT, 'utf8');
-  assert.match(ps, /GetStringAsync\(\$ApiUrl\)/);
+  assert.match(ps, /GetStringAsync\(\$url\)/);
   assert.match(ps, /Complete-Fetch/);
   assert.match(ps, /refreshing\.\.\./);
+  // Providers still answering come in through a follow-up ?settled fetch, bars shimmering meanwhile.
+  assert.match(ps, /data\.pending[\s\S]{0,80}Start-Fetch -Settled/);
+  assert.match(ps, /settled=1/);
+  assert.match(ps, /\$m\.glint/);
   // The blocking fetch is kept only for -RenderTo snapshots.
   const live = ps.slice(ps.indexOf('$notify = New-Object'));
   assert.doesNotMatch(live, /Fetch-Data|Invoke-RestMethod/);

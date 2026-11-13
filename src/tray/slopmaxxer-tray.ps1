@@ -84,6 +84,46 @@ $script:animTimer.Add_Tick({
   if ($px -ne $script:nodPx) { $script:nodPx = $px; $script:verdictPanel.Invalidate() }
 })
 
+# Meters hide the wait: on opening they grow up from empty, new figures glide in from the
+# old ones, and a highlight sweeps across a bar while its provider is still being read.
+$script:meters = @()
+$script:shown = @{}          # meter key -> width on screen, so a rebuild continues from there
+$script:meterTimer = New-Object System.Windows.Forms.Timer
+$script:meterTimer.Interval = 30
+$script:meterTimer.Add_Tick({
+  if (-not $form.Visible) { $script:meterTimer.Stop(); return }
+  # The clock starts on the first tick: showing the window can take longer than the animation.
+  if (-not $script:meterStart) { $script:meterStart = Get-Date }
+  $ms = ((Get-Date) - $script:meterStart).TotalMilliseconds
+  $t = [math]::Min(1.0, $ms / 650.0)  # 1.0: an int 1 makes PowerShell round t to 0 or 1
+  $ease = 1 - [math]::Pow(1 - $t, 3)
+  $busy = $t -lt 1
+  foreach ($m in $script:meters) {
+    $w = $m.from + ($m.to - $m.from) * $ease
+    $script:shown[$m.key] = $w
+    $m.fill.Width = [int][math]::Round($w)
+    if ($m.shimmer) {
+      $busy = $true
+      $m.glint.Visible = $true
+      $m.glint.Left = [int](((($ms % 1100) / 1100) * 152) - 24)
+    }
+  }
+  if (-not $busy) { $script:meterTimer.Stop() }
+})
+
+function Start-Meters {
+  $script:meterStart = $null
+  if ($script:reducedMotion -or ($RenderTo -and $RenderAfterMs -le 0)) {
+    foreach ($m in $script:meters) { $m.fill.Width = $m.to; $script:shown[$m.key] = $m.to }
+    return
+  }
+  if ($script:meters.Count -and -not $script:meterTimer.Enabled) { $script:meterTimer.Start() }
+}
+
+function Lighten($c, [double]$f) {
+  [System.Drawing.Color]::FromArgb([int]($c.R + (255 - $c.R) * $f), [int]($c.G + (255 - $c.G) * $f), [int]($c.B + (255 - $c.B) * $f))
+}
+
 function Start-VerdictNod {
   if ($script:reducedMotion -or -not $script:verdictPanel) { return }
   if (-not $script:animTimer.Enabled) { $script:animStart = Get-Date; $script:animTimer.Start() }
@@ -153,6 +193,8 @@ function Format-Reset($resetsAt) {
 function Build-Popup {
   $panel.Controls.Clear()
   $script:verdictPanel = $null; $script:nodPx = 0
+  $script:meters = @()
+  $pending = @(); if ($script:lastData -and $script:lastData.pending) { $pending = @($script:lastData.pending) }
   $y = 8
   $null = Add-Label '> slopmaxxer' $script:fontTitle $script:cAccent 12 $y 200
   $stamp = if ($script:fetchTask) { 'refreshing...' }
@@ -215,7 +257,10 @@ function Build-Popup {
     $acctName = if ($a.label) { "{0}/{1} {2}" -f $a.provider, $a.planSlug, $a.label } else { "{0}/{1}" -f $a.provider, $a.planSlug }
     $null = Add-Label $acctName $script:fontHead $color 12 $y 336
     $y += 17
-    if ($a.error) {
+    $reading = $pending -contains [string]$a.provider
+    if ($reading) {
+      $null = Add-Label 'reading...' $script:fontSmall $script:cMuted 12 $y 336; $y += 15
+    } elseif ($a.error) {
       $err = [string]$a.error; if ($err.Length -gt 52) { $err = $err.Substring(0, 52) }
       $null = Add-Label $err $script:fontSmall $script:cRed 12 $y 336; $y += 15
     } elseif ($a.stale) {
@@ -232,7 +277,7 @@ function Build-Popup {
         }
       }
     }
-    if ($wins.Count -eq 0 -and -not $a.error) {
+    if ($wins.Count -eq 0 -and -not $a.error -and -not $reading) {
       $null = Add-Label 'no limits reported' $script:fontSmall $script:cMuted 12 $y 336; $y += 15
     }
     foreach ($w in $wins) {
@@ -248,8 +293,18 @@ function Build-Popup {
         $fill = New-Object System.Windows.Forms.Panel
         $fill.BackColor = $color
         $fill.Location = New-Object System.Drawing.Point(0, 0)
-        $fill.Size = New-Object System.Drawing.Size([int][math]::Round(112 * $left / 100), 9)
+        $key = "{0}|{1}" -f $a.id, $w.label
+        $to = [int][math]::Round(112 * $left / 100)
+        $from = if ($script:shown.ContainsKey($key)) { [double]$script:shown[$key] } else { 0 }
+        $fill.Size = New-Object System.Drawing.Size([int][math]::Round($from), 9)
         $track.Controls.Add($fill)
+        $glint = New-Object System.Windows.Forms.Panel
+        $glint.BackColor = Lighten $color 0.45
+        $glint.Size = New-Object System.Drawing.Size(24, 9)
+        $glint.Location = New-Object System.Drawing.Point(-24, 0)
+        $glint.Visible = $false
+        $fill.Controls.Add($glint)
+        $script:meters += @{ key = $key; fill = $fill; glint = $glint; from = $from; to = $to; shimmer = ($reading -or ([bool]$script:fetchTask -and -not $script:fetchSettled)) -and -not $script:reducedMotion }
         if ($left -le 0) { $textColor = $script:cRed } elseif ($left -le 10) { $textColor = $script:cWarn }
         $when = Format-Reset $w.resetsAt
         $txt = if (-not $w.active -and [double]$w.usedPct -eq 0) { '100% left, not started' }
@@ -266,6 +321,7 @@ function Build-Popup {
   $foot.Add_Click({ Start-Process $DashboardUrl })
   $y += 22
   $form.Height = $y
+  Start-Meters
 }
 
 function Place-Popup {
@@ -302,9 +358,12 @@ $script:http = New-Object System.Net.Http.HttpClient
 $script:http.Timeout = [TimeSpan]::FromSeconds(30)
 $script:fetchTask = $null
 
-function Start-Fetch {
+function Start-Fetch([switch]$Settled) {
   if ($script:fetchTask) { return }
-  $script:fetchTask = $script:http.GetStringAsync($ApiUrl)
+  # ?settled waits for providers the last answer said were still being read.
+  $url = if ($Settled) { $ApiUrl + $(if ($ApiUrl.Contains('?')) { '&settled=1' } else { '?settled=1' }) } else { $ApiUrl }
+  $script:fetchSettled = [bool]$Settled
+  $script:fetchTask = $script:http.GetStringAsync($url)
   if ($form.Visible) { Build-Popup; Place-Popup }
 }
 
@@ -315,11 +374,13 @@ function Complete-Fetch {
   $data = $null
   if ($task.Status -eq 'RanToCompletion') { try { $data = $task.Result | ConvertFrom-Json } catch { } }
   Apply-Data $data
+  if ($data -and $data.pending -and @($data.pending).Count) { Start-Fetch -Settled }
   if ($form.Visible) { Build-Popup; Place-Popup }
 }
 
 function Show-Popup {
   $script:lastHover = Get-Date
+  if (-not $form.Visible) { $script:shown = @{} } # every opening grows the bars up from empty
   Build-Popup; Place-Popup
   if (-not $form.Visible) { $form.Show(); $form.Update() }
   Start-VerdictNod
