@@ -64,7 +64,10 @@ export async function fetchMuse({ dir }, { run = runMuseUsage } = {}) {
     accountKey: meta?.user_email || null,
     ...planOf(null, meta?.subs_active === true),
   };
-  if (!meta?.access_token && !meta?.api_key) return { ...base, error: 'Not logged in (run muse login)' };
+  // On macOS the CLI keeps the token in the Keychain and auth.json only says so; either way
+  // we just check that a login exists and let `muse usage` use it.
+  const loggedIn = meta?.access_token || meta?.api_key || meta?.storage === 'keychain';
+  if (!loggedIn) return { ...base, error: 'Not logged in (run muse login)' };
 
   let usage;
   try {
