@@ -16,7 +16,9 @@ for the user-facing feature list and guidance rules.
 ## Layout
 ```
 bin/slopmaxxer.mjs      CLI: serve (default) · status [--json] · accounts; flags --port --no-open --no-tray --demo
-src/tray.mjs + tray/    Windows tray icon + click popup (PowerShell/WinForms, zero deps); polls /api/slop, dies with the server
+src/tray.mjs + tray/    tray companions, zero deps, read /api/slop and die with the server: Windows tray (PowerShell/WinForms),
+                        macOS menu bar (JXA via osascript; `osascript -l JavaScript src/tray/slopmaxxer-menubar.js <api> <dashboard> --dump` prints its menu)
+src/keychain.mjs        macOS: Claude Code logins live in the Keychain, read with `security find-generic-password` only
 src/discover.mjs        finds installs (~/.claude*, ~/.codex*, ~/.config/muse, CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_CONFIG_HOME, ~/.slopmaxxer/config.json)
 src/providers/          claude.mjs · codex.mjs — live limit reads via the CLIs' own (undocumented) usage endpoints; muse.mjs — via `muse usage --json` (token stays in the Muse CLI)
 src/collect.mjs         polls (on demand, ≥120s apart, only while a dashboard is visible), dedupes logins, stores readings
@@ -60,7 +62,7 @@ Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CON
 - Small commits, conventional-ish subjects; README screenshots live in `docs/`.
 
 ## Ways to hurt yourself
-- **Never write to credential files** (`.credentials.json`, `auth.json`) or refresh tokens — read-only is a core promise.
+- **Never write to credential files** (`.credentials.json`, `auth.json`, the macOS Keychain) or refresh tokens — read-only is a core promise.
   Tokens must only ever be sent to Anthropic/OpenAI. Muse usage comes from the `muse usage` subprocess; never read its token values.
 - The server must keep binding to `127.0.0.1`, never `0.0.0.0`.
 - Running without `--demo` reads your real logins and calls live usage endpoints; prefer `--demo` while developing.
@@ -70,11 +72,11 @@ Env: `PORT`, `SLOPMAXXER_HOME` (state dir, default `~/.slopmaxxer`), `CLAUDE_CON
 
 ## Review
 Process: global skill `pr-crosscheck`. Tier triggers beyond the defaults:
-- T2: `src/providers/`, `src/discover.mjs` (they read credentials and send tokens), `src/server.mjs` (bind address),
+- T2: `src/providers/`, `src/discover.mjs`, `src/keychain.mjs` (they read credentials and send tokens), `src/server.mjs` (bind address),
   `public/guidance.js` (routing decisions), `package.json` `files`/`bin` (what ships to npm).
 Failure looks like: a write to a credential file or a refreshed token, a token sent anywhere but Anthropic/OpenAI,
 the server reachable beyond 127.0.0.1, a dependency added, or a dashboard that says "go" for an account that is out.
-Checks: `npm test`; for packaging or path changes also `npm run test:package`.
+Checks: `npm test`; for packaging or path changes also `npm run test:package`. CI runs both on macOS and Windows.
 Skip: `design/reference/` (preserved prototype), `docs/*.png`. At most 3 minor findings; UI-copy voice is not a finding.
 
 ## Distribution
