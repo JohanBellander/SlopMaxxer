@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SLOP_HOME } from '../discover.mjs';
 import { cachedClaudeUsage } from '../claude-cache.mjs';
+import { readClaudeKeychainLogin } from '../keychain.mjs';
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 
@@ -82,8 +83,8 @@ function toWindow(kind, label, w, windowSeconds) {
   };
 }
 
-export async function fetchClaude({ dir }, { home = SLOP_HOME, request = fetch } = {}) {
-  const creds = readJson(path.join(dir, '.credentials.json'))?.claudeAiOauth;
+export async function fetchClaude({ dir }, { home = SLOP_HOME, request = fetch, keychain = readClaudeKeychainLogin } = {}) {
+  const creds = (readJson(path.join(dir, '.credentials.json')) || await keychain(dir))?.claudeAiOauth;
   const meta = metadata(dir);
   const id = identity(meta);
   const base = {

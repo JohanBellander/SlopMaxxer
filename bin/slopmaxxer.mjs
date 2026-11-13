@@ -23,7 +23,7 @@ Commands:
 Options:
   --demo            Show sample accounts (serve or status)
   --no-open         Start without opening a browser (serve)
-  --no-tray         Start without the tray icon (serve, Windows)
+  --no-tray         Start without the tray/menu bar icon (serve, Windows and macOS)
   --port <number>   Require port 1–65535 (default: 4747 or a free port)
   --json            Print JSON (status)
   --provider <name>  Filter status routing: any, claude, codex, muse
@@ -123,9 +123,13 @@ switch (cmd) {
         const link = process.stdout.isTTY
           ? `\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`
           : url;
-        console.log(`\nSlopMaxxer is ready\n\n  ${link}\n\nOpen the link in your browser (Ctrl+click in Windows Terminal).\nKeep this terminal open. Press Ctrl+C to stop.\n`);
+        console.log(`\nSlopMaxxer is ready\n\n  ${link}\n\nOpen the link in your browser (${process.platform === 'darwin' ? 'Cmd+click' : 'Ctrl+click in Windows Terminal'}).\nKeep this terminal open. Press Ctrl+C to stop.\n`);
         if (!flag('no-open')) openBrowser(url);
-        if (!flag('no-tray') && startTray({ url })) console.log('Tray icon is on, bottom-right. Click it for allowances, double-click it for the dashboard.');
+        if (!flag('no-tray') && startTray({ url })) {
+          console.log(process.platform === 'darwin'
+            ? 'Menu bar item is on, top-right. Click it for allowances and the dashboard.'
+            : 'Tray icon is on, bottom-right. Click it for allowances, double-click it for the dashboard.');
+        }
       },
       onError: (error) => fail(error.code === 'EADDRINUSE'
         ? `Port ${port} is already in use. Choose another port, for example:\n  npx slopmaxxer@latest --port ${port === 65535 ? 4747 : port + 1}\n`

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { hasClaudeKeychainLogin } from './keychain.mjs';
 
 export const SLOP_HOME = process.env.SLOPMAXXER_HOME || path.join(os.homedir(), '.slopmaxxer');
 
@@ -20,7 +21,9 @@ const exists = (p) => {
 };
 
 function isClaudeHome(dir) {
-  return exists(path.join(dir, '.credentials.json'));
+  // macOS keeps the login in the Keychain; only ask for dirs Claude Code actually uses.
+  return exists(path.join(dir, '.credentials.json'))
+    || (exists(dir) && hasClaudeKeychainLogin(dir));
 }
 function isCodexHome(dir) {
   return exists(path.join(dir, 'auth.json'));
