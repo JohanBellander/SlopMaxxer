@@ -29,11 +29,15 @@ export function hasClaudeKeychainLogin(dir, { platform = process.platform, run =
 /** The parsed credentials JSON ({ claudeAiOauth }), or null when there is none. */
 export async function readClaudeKeychainLogin(dir, { platform = process.platform, run = execFileAsync, home } = {}) {
   if (platform !== 'darwin') return null;
+  // ~/.claude can have both items (logged in with and without CLAUDE_CONFIG_DIR); the one
+  // Claude Code still refreshes has the latest expiry, so an abandoned login never wins.
+  let best = null;
   for (const service of claudeKeychainServices(dir, { home })) {
     try {
       const { stdout } = await run(SECURITY, ['find-generic-password', '-s', service, '-w'], { timeout: 5000 });
-      return JSON.parse(stdout);
-    } catch { /* not this item: try the next name */ }
+      const login = JSON.parse(stdout);
+      if (!best || (login?.claudeAiOauth?.expiresAt || 0) > (best?.claudeAiOauth?.expiresAt || 0)) best = login;
+    } catch { /* no such item */ }
   }
-  return null;
+  return best;
 }

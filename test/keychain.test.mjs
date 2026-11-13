@@ -34,6 +34,23 @@ test('Keychain lookups are macOS-only and only ever run find-generic-password', 
   assert.equal(calls[1].includes('-w'), true);
 });
 
+test('with both ~/.claude Keychain items, the login Claude Code still refreshes wins', async () => {
+  const main = path.join(home, '.claude');
+  const [plain, hashed] = claudeKeychainServices(main, { home });
+  const items = {
+    [plain]: { claudeAiOauth: { accessToken: 'old', expiresAt: 1000 } },
+    [hashed]: { claudeAiOauth: { accessToken: 'current', expiresAt: 2000 } },
+  };
+  const run = async (_file, args) => {
+    const item = items[args[args.indexOf('-s') + 1]];
+    if (!item) throw new Error('not found');
+    return { stdout: JSON.stringify(item) };
+  };
+  assert.equal((await readClaudeKeychainLogin(main, { platform: 'darwin', run, home })).claudeAiOauth.accessToken, 'current');
+  delete items[hashed];
+  assert.equal((await readClaudeKeychainLogin(main, { platform: 'darwin', run, home })).claudeAiOauth.accessToken, 'old');
+});
+
 test('a missing Keychain item means no login, not a crash', async () => {
   const fail = () => { throw new Error('The specified item could not be found in the keychain.'); };
   assert.equal(hasClaudeKeychainLogin('/d', { platform: 'darwin', run: fail, home }), false);
