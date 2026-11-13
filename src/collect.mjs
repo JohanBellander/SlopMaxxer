@@ -101,14 +101,40 @@ function safeDaily(a, now) {
 const accountId = (a) =>
   crypto.createHash('sha1').update(`${a.provider}:${a.accountKey || a.dir}`).digest('hex').slice(0, 10);
 
-/**
- * Read local transcripts and session logs once, so the first poll doesn't. Only reads files on
- * this machine (no provider requests); later polls parse just what was appended since.
- */
-export function warmHistory() {
+const installKey = (i) => `${i.provider}:${i.dir}`;
+const lastRaw = new Map(); // installKey -> { a, at }: newest provider result, kept between polls
+const running = new Map(); // installKey -> promise: a provider still answering is not asked twice
+
+/** Ask one install's provider; the answer lands in lastRaw whenever it arrives. */
+function fetchInstall(inst, now, fetchers = FETCHERS) {
+  const key = installKey(inst);
+  if (running.has(key)) return running.get(key);
   const t = performance.now();
+  const run = (async () => {
+    let a;
+    try {
+      a = await fetchers[inst.provider](inst);
+    } catch (e) {
+      log.error('fetch.threw', { provider: inst.provider, dir: inst.dir, ms: since(t), error: e });
+      a = { provider: inst.provider, dir: inst.dir, error: e.message };
+    }
+    const outcome = a.error ? 'error' : a.stale ? 'stale' : 'live';
+    log[outcome === 'live' ? 'info' : 'warn']('fetch.done', {
+      provider: inst.provider, dir: inst.dir, id: accountId(a), ms: since(t), outcome,
+      plan: a.plan, error: a.error, note: a.note, limitReached: a.limitReached,
+      observedAgeMin: a.observedAt ? Math.round((now - a.observedAt) / 60000) : null,
+      windows: (a.windows || []).map((w) => ({ kind: w.kind, used: w.usedPercent, resetsInMin: w.resetsAt ? Math.round((w.resetsAt - now) / 60000) : null, idle: w.idle })),
+    });
+    lastRaw.set(key, { a, at: now });
+  })().finally(() => running.delete(key));
+  running.set(key, run);
+  return run;
+}
+
+/** Parse what was appended to local transcripts and session logs (disk only, no requests). */
+function warmDisk(installs) {
   let records = 0;
-  for (const inst of discoverInstalls(loadConfig())) {
+  for (const inst of installs) {
     try {
       if (inst.provider === 'claude') records += claudeDiskUsage(inst.dir).length;
       if (inst.provider === 'codex') records += codexDiskSamples(inst.dir).length;
@@ -116,53 +142,67 @@ export function warmHistory() {
       log.warn('backfill.warm_failed', { provider: inst.provider, dir: inst.dir, error: e });
     }
   }
+  return records;
+}
+
+/** Read local history once at startup, so the first poll doesn't. */
+export function warmHistory() {
+  const t = performance.now();
+  const records = warmDisk(discoverInstalls(loadConfig()));
   loadHistory();
   log.info('backfill.warmed', { ms: since(t), records });
 }
 
-export async function collect() {
+export async function collect({ waitMs = Infinity, onLate, installs: given, fetchers = FETCHERS } = {}) {
   const config = loadConfig();
-  const installs = discoverInstalls(config);
+  const installs = given || discoverInstalls(config);
   const now = Date.now();
   const t0 = performance.now();
-  log.info('collect.start', { installs: installs.map((i) => `${i.provider} ${i.dir}`) });
+  log.info('collect.start', { installs: installs.map((i) => `${i.provider} ${i.dir}`), waitMs: Number.isFinite(waitMs) ? waitMs : undefined });
 
-  const raw = await Promise.all(
-    installs.map(async (inst) => {
-      const t = performance.now();
-      let a;
-      try {
-        a = await FETCHERS[inst.provider](inst);
-      } catch (e) {
-        log.error('fetch.threw', { provider: inst.provider, dir: inst.dir, ms: since(t), error: e });
-        a = { provider: inst.provider, dir: inst.dir, error: e.message };
-      }
-      const outcome = a.error ? 'error' : a.stale ? 'stale' : 'live';
-      log[outcome === 'live' ? 'info' : 'warn']('fetch.done', {
-        provider: inst.provider, dir: inst.dir, id: accountId(a), ms: since(t), outcome,
-        plan: a.plan, error: a.error, note: a.note, limitReached: a.limitReached,
-        observedAgeMin: a.observedAt ? Math.round((now - a.observedAt) / 60000) : null,
-        windows: (a.windows || []).map((w) => ({ kind: w.kind, used: w.usedPercent, resetsInMin: w.resetsAt ? Math.round((w.resetsAt - now) / 60000) : null, idle: w.idle })),
-      });
-      return a;
-    }),
-  );
+  const done = new Set();
+  const runs = installs.map((inst) => fetchInstall(inst, now, fetchers).then(() => done.add(installKey(inst))));
+  const mustWait = installs.filter((i) => !lastRaw.has(installKey(i))).map((i) => runs[installs.indexOf(i)]);
+  let timer;
+  await Promise.all([
+    Number.isFinite(waitMs) ? Promise.race([Promise.all(runs), new Promise((r) => (timer = setTimeout(r, waitMs)))]) : Promise.all(runs),
+    ...mustWait,
+  ]);
+  clearTimeout(timer);
 
+  const late = installs.filter((i) => !done.has(installKey(i)));
+  const entries = (fresh) => installs.map((i) => ({ ...lastRaw.get(installKey(i)), carried: !fresh(i) }));
+  const first = assemble(config, entries((i) => done.has(installKey(i))), now, installs.length, t0);
+  first.pending = [...new Set(late.map((i) => i.provider))];
+  if (late.length) {
+    log.info('collect.answered_early', { ms: since(t0), pending: late.map((i) => `${i.provider} ${i.dir}`) });
+    const lateKeys = new Set(late.map(installKey));
+    onLate?.(Promise.all(runs).then(() => ({ ...assemble(config, entries((i) => lateKeys.has(installKey(i))), Date.now(), installs.length, t0), pending: [] })));
+  }
+  return first;
+}
+
+/**
+ * Turn the latest result for each install into the snapshot. A carried entry was already
+ * counted by an earlier pass (or comes from the previous poll while its provider is still
+ * answering): it is shown but never stored again as a new sample.
+ */
+function assemble(config, entries, now, installCount, t0) {
   // The same login can live in two dirs — show it once, prefer the one with data.
   const byId = new Map();
-  for (const a of raw) {
+  for (const { a, at, carried } of entries) {
     const id = accountId(a);
     const prev = byId.get(id);
-    if (!prev || ((!prev.windows?.length || prev.stale || prev.error) && a.windows?.length && !a.stale && !a.error)) byId.set(id, { ...a, id, dirs: [...(prev?.dirs || []), a.dir] });
+    if (!prev || ((!prev.windows?.length || prev.stale || prev.error) && a.windows?.length && !a.stale && !a.error)) byId.set(id, { ...a, id, at, carried, dirs: [...(prev?.dirs || []), a.dir] });
     else prev.dirs.push(a.dir);
     if (prev) log.debug('account.deduped', { id, provider: a.provider, dirs: byId.get(id).dirs, kept: byId.get(id).dir });
   }
 
   const nicknames = config.nicknames || {};
-  const accounts = [...byId.values()].map((a) => (a.error ? fromLastSamples(a, now) || a : a)).map((a) => {
-    a.observedAt ??= a.stale || a.error ? null : now;
+  const accounts = [...byId.values()].map((a) => (a.error ? fromLastSamples(a, now) || a : a)).map(({ at, carried, ...a }) => {
+    a.observedAt ??= a.stale || a.error ? null : at;
     a.windows = (a.windows || []).map(w => ({ ...w, observedAt: w.observedAt ?? a.observedAt }));
-    const freshSamples = a.stale || a.error ? [] : a.windows.map(w => ({ t: now, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds }));
+    const freshSamples = a.stale || a.error || carried ? [] : a.windows.map(w => ({ t: at, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds }));
     const evidence = [...loadHistory(), ...freshSamples];
     a.completedWindows = completedWindows(evidence, a.id, now);
     for (const w of a.windows) {
@@ -176,19 +216,17 @@ export async function collect() {
       nickname: nicknames[`${a.provider}:${a.email}`] || nicknames[a.id] || nicknames[a.email] || null,
       spark: sparkline(a.id),
       daily: safeDaily(a, now),
+      freshSamples,
     };
   });
 
-  const samples = [];
-  for (const a of accounts) {
-    if (a.stale || a.error) continue;
-    for (const w of a.windows) samples.push({ t: now, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds });
-  }
+  const samples = accounts.flatMap((a) => a.freshSamples);
+  for (const a of accounts) delete a.freshSamples;
   if (samples.length) saveSamples(samples);
 
   const next = pickNext(accounts, now);
   log.info('collect.done', {
-    ms: since(t0), installs: installs.length, accounts: accounts.length, samples: samples.length, nextUp: next?.id || null,
+    ms: since(t0), installs: installCount, accounts: accounts.length, samples: samples.length, nextUp: next?.id || null,
     summary: accounts.map((a) => `${a.provider}:${a.id} ${a.error ? 'error' : a.stale ? 'stale' : 'live'}`),
   });
   return {

@@ -78,6 +78,9 @@ export interface SlopSnapshot {
   previousId?: string | null;
   opportunityMinutes?: number;
   demo?: boolean;
+  // Providers still answering this poll; their accounts show the previous reading until a
+  // follow-up /api/slop?settled request returns the complete snapshot.
+  pending?: Provider[];
   // Added by the server on /api/slop for clients that cannot run guidance.js (the tray popup).
   guidance?: { verdict: Verdict; next: { id: string; provider: Provider; slug: string; label: string; status: string } | null };
 }
