@@ -13,8 +13,7 @@ const ICON = fileURLToPath(new URL('../public/favicon.ico', import.meta.url));
 export function trayCommand({ url, enabled = true } = {}, { platform = process.platform, pid = process.pid } = {}) {
   if (!enabled || !url) return null;
   const base = url.replace(/\/$/, '');
-  // The menu bar script watches its parent pid itself, so it needs no pid argument.
-  if (platform === 'darwin') return { file: '/usr/bin/osascript', args: ['-l', 'JavaScript', MENUBAR_SCRIPT, `${base}/api/slop`, base] };
+  if (platform === 'darwin') return { file: '/usr/bin/osascript', args: ['-l', 'JavaScript', MENUBAR_SCRIPT, `${base}/api/slop`, base, String(pid)] };
   if (platform !== 'win32') return null;
   return {
     file: 'powershell.exe',

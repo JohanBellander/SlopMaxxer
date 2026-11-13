@@ -11,9 +11,9 @@ test('tray runs on Windows and macOS only and can be turned off', () => {
 });
 
 test('macOS menu bar runs the shipped JXA script against the local API', () => {
-  const cmd = trayCommand({ url: 'http://127.0.0.1:4747/' }, { platform: 'darwin' });
+  const cmd = trayCommand({ url: 'http://127.0.0.1:4747/' }, { platform: 'darwin', pid: 4242 });
   assert.equal(cmd.file, '/usr/bin/osascript');
-  assert.deepEqual(cmd.args, ['-l', 'JavaScript', MENUBAR_SCRIPT, 'http://127.0.0.1:4747/api/slop', 'http://127.0.0.1:4747']);
+  assert.deepEqual(cmd.args, ['-l', 'JavaScript', MENUBAR_SCRIPT, 'http://127.0.0.1:4747/api/slop', 'http://127.0.0.1:4747', '4242']);
   assert.equal(fs.existsSync(MENUBAR_SCRIPT), true);
 });
 

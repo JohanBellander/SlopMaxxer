@@ -72,12 +72,15 @@ function menuModel(data, now = Date.now(), fetchedAt = now) {
 }
 
 function run(argv) {
-  // --dump: build the real menu once, print it and exit (a check that needs no screen access).
-  const [apiUrl, dashboardUrl, mode] = argv;
-  const dump = mode === '--dump';
+  // argv: <api url> <dashboard url> [server pid] [--dump]. --dump builds the real menu once,
+  // prints it and exits (a check that needs no screen access).
+  const [apiUrl, dashboardUrl] = argv;
+  const dump = argv.includes('--dump');
   ObjC.import('Cocoa');
   ObjC.bindFunction('getppid', ['int', []]);
-  const parentPid = $.getppid(); // osascript's parent is the server; it becomes 1 if that dies
+  // osascript's parent is the server; once it dies we are reparented. Prefer the pid the server
+  // passed: if it died before this line ran, getppid() would already be the new parent.
+  const parentPid = Number(argv[2]) || $.getppid();
   const out = `${$.NSTemporaryDirectory().js}slopmaxxer-menubar-${parentPid}.json`;
 
   const app = $.NSApplication.sharedApplication;
