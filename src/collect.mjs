@@ -54,24 +54,31 @@ function sparkline(id) {
 /**
  * When a live read fails (429, expired token, network), rebuild the windows from the last samples
  * we stored for this account so the dashboard keeps showing something instead of going blank.
+ * Muse's server sends no usage at all until the first use in a new window, so for that case a
+ * window keeps its last value until it resets (a lower bound, still flagged stale), and one whose
+ * reset has passed is back at 0% and not started.
  */
-function fromLastSamples(a, now) {
+export function fromLastSamples(a, now, samples = loadHistory()) {
   const latest = {};
-  for (const s of loadHistory()) if (s.id === a.id && (!latest[s.kind] || s.t > latest[s.kind].t)) latest[s.kind] = s;
-  const kinds = Object.values(latest).filter((s) => now - s.t < 12 * 3_600_000);
+  for (const s of samples) if (s.id === a.id && (!latest[s.kind] || s.t > latest[s.kind].t)) latest[s.kind] = s;
+  const kinds = Object.values(latest).filter((s) => a.noUsage || now - s.t < 12 * 3_600_000);
   if (!kinds.length) return null;
-  const windows = kinds.map((s) => ({
-    kind: s.kind,
-    label: s.kind === 'session' ? (a.provider === 'muse' ? 'Window' : '5-hour') : s.kind === 'weekly' ? 'Weekly' : s.kind.replaceAll('_', ' '),
-    usedPercent: s.used,
-    windowSeconds: s.windowSeconds || (s.kind === 'session' && a.provider === 'muse' ? null : s.kind === 'session' ? 5 * 3600 : 7 * 86400),
-    resetsAt: s.resetsAt,
-    idle: !s.resetsAt && s.used === 0,
-    observedAt: s.t,
-    scope: s.scope || (s.kind === 'weekly_opus' ? 'opus' : s.kind === 'weekly_sonnet' ? 'sonnet' : 'all'),
-  }));
-  const at = new Date(Math.max(...kinds.map((s) => s.t))).toTimeString().slice(0, 5);
-  return { ...a, windows, observedAt: Math.max(...kinds.map(s => s.t)), error: undefined, stale: true, note: `${a.error}; showing the last reading from ${at}` };
+  const windows = kinds.map((s) => {
+    const reset = a.noUsage && s.resetsAt && s.resetsAt <= now;
+    return {
+      kind: s.kind,
+      label: s.kind === 'session' ? (a.provider === 'muse' ? 'Window' : '5-hour') : s.kind === 'weekly' ? 'Weekly' : s.kind.replaceAll('_', ' '),
+      usedPercent: reset ? 0 : s.used,
+      windowSeconds: s.windowSeconds || (s.kind === 'session' && a.provider === 'muse' ? null : s.kind === 'session' ? 5 * 3600 : 7 * 86400),
+      resetsAt: reset ? null : s.resetsAt,
+      idle: reset || (!s.resetsAt && s.used === 0),
+      observedAt: s.t,
+      scope: s.scope || (s.kind === 'weekly_opus' ? 'opus' : s.kind === 'weekly_sonnet' ? 'sonnet' : 'all'),
+    };
+  });
+  const last = new Date(Math.max(...kinds.map((s) => s.t)));
+  const at = (last.toDateString() === new Date(now).toDateString() ? '' : `${last.toDateString().slice(0, 10)} `) + last.toTimeString().slice(0, 5);
+  return { ...a, windows, observedAt: last.getTime(), error: undefined, stale: true, note: `${a.error}; showing the last reading from ${at}` };
 }
 
 function safeDaily(a, now) {
