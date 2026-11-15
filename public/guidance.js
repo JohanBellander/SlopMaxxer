@@ -82,14 +82,15 @@ export function deriveAccount(a, now, { model = 'any' } = {}) {
   const capOf = w => applicable.filter(l => l !== w && l.known && l.remainingPct < w.remainingPct &&
     (l.remainingMin == null || l.remainingMin >= w.remainingMin)).sort((x, y) => x.remainingPct - y.remainingPct)[0] || null;
   const accessible = w => capOf(w)?.remainingPct ?? w.remainingPct;
+  const gap = w => w.timeLeftPct == null ? null : accessible(w) - w.timeLeftPct;
   const soon = applicable.filter(w => w.known && w.remainingMin > 0 && w.remainingPct >= CFG.meaningfulPct &&
     w.remainingMin <= (w.kind === 'session' ? CFG.sessionOpportunityMinutes : CFG.weeklyOpportunityMinutes))
     .sort((x, y) => x.remainingMin - y.remainingMin);
   const opportunity = soon.find(w => accessible(w) >= CFG.meaningfulPct) || null;
   // Calendar comparison is a utilization nudge, not a prediction from a short usage burst.
   const underused = applicable.filter(w => w.known && w.fresh && !w.idle && !w.expired &&
-    w.remainingMin > 0 && accessible(w) >= CFG.meaningfulPct && w.unusedGapPct >= CFG.underusedGapPct)
-    .sort((x, y) => y.unusedGapPct - x.unusedGapPct)[0] || null;
+    w.remainingMin > 0 && accessible(w) >= CFG.meaningfulPct && gap(w) >= CFG.underusedGapPct)
+    .sort((x, y) => gap(y) - gap(x))[0] || null;
   const interruption = applicable.filter(w => w.capRange).sort((x, y) => x.capRange[0] - y.capRange[0])[0] || null;
   // Week-to-date average pace, not a burst: warn only 2+ days into the window, and only when
   // that pace empties the weekly allowance a day or more before its reset.
@@ -133,14 +134,16 @@ export function deriveAccount(a, now, { model = 'any' } = {}) {
   else if (opportunity) reason = capOf(opportunity)
     ? `${opportunity.label} resets in ${duration(opportunity.remainingMin)} with ${Math.round(opportunity.remainingPct)}% left, but ${capOf(opportunity).label} has only ${Math.round(capOf(opportunity).remainingPct)}% left until it resets. Use what you can before reset.`
     : `${Math.round(opportunity.remainingPct)}% of ${opportunity.label} remains with reset in ${duration(opportunity.remainingMin)}. Use it for suitable work before reset.`;
-  else if (status === 'underused') reason = `${Math.round(underused.remainingPct)}% of ${underused.label} allowance remains, but only ${Math.round(underused.timeLeftPct)}% of its window is left (${duration(underused.remainingMin)}). Pick up the pace to use more before reset. This compares calendar time, not predicted consumption.${capOf(underused) ? ` ${capOf(underused).label} has only ${Math.round(capOf(underused).remainingPct)}% left until it resets.` : ''}`;
+  else if (status === 'underused') reason = `${capOf(underused)
+    ? `${underused.label} allowance is capped at ${Math.round(capOf(underused).remainingPct)}% by ${capOf(underused).label} until it resets`
+    : `${Math.round(underused.remainingPct)}% of ${underused.label} allowance remains`}, but only ${Math.round(underused.timeLeftPct)}% of its window is left (${duration(underused.remainingMin)}). Pick up the pace to use more before reset. This compares calendar time, not predicted consumption.`;
   else if (status === 'ready') reason = 'A usage window has not started. Ready when you have a suitable task.';
   else reason = 'Capacity remains on the reported limits. Keep working if this account suits your task.';
   if (status === 'blocked' && soon[0]) reason += ` ${soon[0].label} capacity remains, but another limit currently prevents using it.`;
   if (usable && interruption) reason += ` At your recent pace, ${interruption.label} may run out in ${duration(interruption.capRange[0])}–${duration(interruption.capRange[1])}; this is conditional, not a task-size guarantee.`;
   if (usable && paceWarning) reason += ` ${paceWarning}`;
   if (tokenWarning) reason += ` ${tokenWarning}`;
-  const urgency = status === 'expiring' ? 100 + 30 * (1 - opportunity.remainingMin / (opportunity.kind === 'session' ? CFG.sessionOpportunityMinutes : CFG.weeklyOpportunityMinutes)) : status === 'underused' ? 20 + underused.unusedGapPct : 0;
+  const urgency = status === 'expiring' ? 100 + 30 * (1 - opportunity.remainingMin / (opportunity.kind === 'session' ? CFG.sessionOpportunityMinutes : CFG.weeklyOpportunityMinutes)) : status === 'underused' ? 20 + gap(underused) : 0;
   const routeScore = usable ? (headroom || 0) * .4 + urgency - (status === 'limited' ? 60 : 0) - (status === 'restricted' ? 80 : 0) - (paceWarning ? 15 : 0) : -1000;
   const absent = deriveWindow(null, now);
   return { ...a, windows, applicable, five: windows.find(w => w.kind === 'session') || absent,
