@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collect } from './collect.mjs';
+import { collect, warmHistory } from './collect.mjs';
 import { loadConfig } from './discover.mjs';
 import { demoSnapshot } from './demo.mjs';
 import { shiftedMock } from './mock.mjs';
@@ -13,16 +13,19 @@ import { derive } from '../public/guidance.js';
 import { log, since } from './log.mjs';
 
 const CLIENT_LOG_MAX = 8 * 1024;
+// Answer with whatever providers are in after this long; slower ones (Muse) follow in a second pass.
+const EARLY_ANSWER_MS = 1000;
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' };
 
-export function startServer({ port = 4747, demo = false, fallbackPort = false, onReady, onError } = {}) {
+export function startServer({ port = 4747, demo = false, fallbackPort = false, warm = true, poll = collect, onReady, onError } = {}) {
   const config = loadConfig();
   const pollMs = Math.max(60_000, (config.pollSeconds || 120) * 1000);
   let snapshot = null; // classic shape: /api/snapshot (classic.html, CLI)
   let slop = null; // design shape (design/types.ts): /api/slop (index.html)
   let inflight = null;
+  let settling = null; // second pass of the current poll, while a slow provider still answers
   let fetchedAt = 0; // when the last provider poll started
   let lastVerdict = null; // only log guidance when it changes
 
@@ -36,20 +39,34 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
       log.debug('poll.joined', { reason });
       return inflight;
     }
+    // A slow provider is still answering this poll: serve the early answer, don't start another.
+    if (settling) {
+      log.debug('poll.settling', { reason });
+      return Promise.resolve(snapshot);
+    }
     const prevAt = fetchedAt;
     const t0 = (fetchedAt = Date.now());
     log.info('poll.start', { reason, sinceLastSec: prevAt ? Math.round((t0 - prevAt) / 1000) : null });
-    inflight = collect()
-      .then((s) => {
-        snapshot = s;
-        try {
-          slop = buildSlopSnapshot(s, { ms: Date.now() - t0 });
-          log.info('poll.done', { ms: Date.now() - t0, accounts: slop.accounts.length });
-        } catch (e) {
-          console.error('[slopmaxxer] snapshot build failed:', e.message);
-          log.error('snapshot.build_failed', { error: e });
-        }
-      })
+    const publish = (s, ev) => {
+      snapshot = s;
+      try {
+        // An early answer is a passing state: only the complete one writes events and state.
+        slop = { ...buildSlopSnapshot(s, { ms: Date.now() - t0, persist: !s.pending?.length }), pending: s.pending || [] };
+        log.info(ev, { ms: Date.now() - t0, accounts: slop.accounts.length, pending: s.pending?.length ? s.pending : undefined });
+      } catch (e) {
+        console.error('[slopmaxxer] snapshot build failed:', e.message);
+        log.error('snapshot.build_failed', { error: e });
+      }
+    };
+    const onLate = (late) => {
+      const p = late
+        .then((s) => publish(s, 'poll.settled'))
+        .catch((e) => log.error('poll.failed', { ms: Date.now() - t0, late: true, error: e }))
+        .finally(() => { if (settling === p) settling = null; });
+      settling = p;
+    };
+    inflight = poll({ waitMs: EARLY_ANSWER_MS, onLate })
+      .then((s) => publish(s, 'poll.done'))
       .catch((e) => {
         console.error('[slopmaxxer] poll failed:', e.message);
         log.error('poll.failed', { ms: Date.now() - t0, error: e });
@@ -131,21 +148,24 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const force = url.searchParams.has('refresh');
+    const settled = url.searchParams.has('settled'); // also wait for providers still answering
     const t0 = performance.now();
     res.on('finish', () => {
       const api = url.pathname.startsWith('/api/');
       log[res.statusCode >= 400 ? 'warn' : api ? 'info' : 'debug']('http', {
-        method: req.method, path: url.pathname, force: force || undefined, status: res.statusCode, ms: since(t0),
+        method: req.method, path: url.pathname, force: force || undefined, settled: settled || undefined, status: res.statusCode, ms: since(t0),
         client: api ? (req.headers['user-agent'] || '').slice(0, 60) : undefined,
       });
     });
     if (url.pathname === '/api/log' && req.method === 'POST') return clientLog(req, res);
     if (url.pathname === '/api/snapshot') {
       await ensureFresh(force);
+      if (settled && settling) await settling;
       return json(res, snapshot);
     }
     if (url.pathname === '/api/slop') {
       await ensureFresh(force || !slop);
+      if (settled && settling) await settling;
       return json(res, withGuidance(slop));
     }
     // Old bookmarks use the same decision UI; the archived page has obsolete verdict rules.
@@ -175,6 +195,8 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
   server.once('listening', () => {
     log.info('server.listening', { port: server.address().port, demo, pollMs });
     onReady?.(`http://127.0.0.1:${server.address().port}`);
+    // Disk-only warm-up so the first click doesn't wait several seconds for transcript parsing.
+    if (!demo && warm) setTimeout(() => { try { warmHistory(); } catch (e) { log.warn('backfill.warm_failed', { error: e }); } }, 0);
   });
   server.listen(port, '127.0.0.1');
   return server;
