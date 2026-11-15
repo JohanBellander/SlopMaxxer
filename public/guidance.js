@@ -70,7 +70,8 @@ export function deriveAccount(a, now, { model = 'any' } = {}) {
   const general = windows.filter(w => !w.scope || w.scope === 'all');
   const scoped = windows.filter(w => w.scope && w.scope !== 'all');
   const applicable = windows.filter(w => !w.scope || w.scope === 'all' || w.scope === model);
-  const restrictions = scoped.filter(w => !w.known || !w.fresh || w.expired || w.usedPct >= 100);
+  // A reset only adds capacity: an expired model window that was below its cap is not a restriction.
+  const restrictions = scoped.filter(w => !w.known || !w.fresh || w.usedPct >= 100);
   const blocked = applicable.filter(w => w.known && w.usedPct >= 100);
   const fresh = !a.stale && !a.error && applicable.length > 0 && applicable.every(w => w.fresh);
   const unknown = !general.length || applicable.some(w => !w.known);

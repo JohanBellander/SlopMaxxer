@@ -67,6 +67,25 @@ test('model restrictions apply only to the selected model; provider filters are 
  const codex=a([w('weekly',20,100)],{provider:'codex'});
  assert.equal(vm([codex],{model:'opus'}).next,null);
 });
+test('an expired model window below its cap does not restrict the account',()=>{
+ const expired=a([w('weekly',40,100),w('weekly_sonnet',5,-.1,{scope:'sonnet'})]);
+ assert.equal(vm([expired]).accounts[0].status,'available');
+ assert.equal(vm([expired]).next.id,'a');
+ assert.equal(vm([expired],{model:'sonnet'}).accounts[0].status,'checking');
+ assert.equal(vm([expired],{model:'sonnet'}).next,null);
+ const full=a([w('weekly',20,100),w('weekly_sonnet',100,-.1,{scope:'sonnet'})]);
+ assert.equal(vm([full]).accounts[0].status,'restricted');
+ const unread=a([w('weekly',20,100),w('weekly_sonnet',null,10,{scope:'sonnet'})]);
+ assert.equal(vm([unread]).accounts[0].status,'restricted');
+ const capped=a([w('weekly',20,100),w('weekly_sonnet',100,10,{scope:'sonnet'})]);
+ assert.equal(vm([capped]).accounts[0].status,'restricted');
+ const expiredUnread=a([w('weekly',40,100),w('weekly_sonnet',null,-.1,{scope:'sonnet'})]);
+ assert.equal(vm([expiredUnread]).accounts[0].status,'restricted');
+ assert.equal(vm([expiredUnread]).next,null);
+ const expiredStale=a([w('weekly',40,100),w('weekly_sonnet',5,-.1,{scope:'sonnet',observedAt:now-10*60000})]);
+ assert.equal(vm([expiredStale]).accounts[0].status,'restricted');
+ assert.equal(vm([expiredStale]).next,null);
+});
 test('meaningful expiring capacity beats a later reset; tiny headroom does not',()=>{
  const later=a([w('weekly',20,100)]);
  const soon=a([w('weekly',40,2)],{id:'b'});
