@@ -57,7 +57,9 @@ function popupModel(data, now = Date.now(), fetchedAt = now) {
   else if (!accounts.length) items.push({ kind: 'text', text: 'No logins found yet.', color: 'muted' });
   for (const a of accounts) {
     items.push({ kind: 'account', text: a.label ? `${a.provider}/${a.planSlug} ${a.label}` : `${a.provider}/${a.planSlug}`, color: a.provider });
-    if (a.error) items.push({ kind: 'text', text: String(a.error).slice(0, 52), color: 'red' });
+    // Still answering: the server sent this account's previous reading and finishes it in a moment.
+    if (data.pending?.includes(a.provider)) items.push({ kind: 'text', text: 'reading…', color: 'muted' });
+    else if (a.error) items.push({ kind: 'text', text: String(a.error).slice(0, 52), color: 'red' });
     else if (a.stale) items.push({ kind: 'text', text: 'stale - last known values', color: 'muted' });
     let wins = (a.windows || []).filter((w) => w.kind === 'session' || w.kind === 'weekly');
     // Demo/reference snapshots carry fiveHour/weekly aliases instead of a windows array.
@@ -109,17 +111,21 @@ function run(argv) {
   let data = null;
   let fetchedAt = 0;
   let task = null;
+  let askedSettled = false; // the running fetch is the one ?settled follow-up
   let titleCleared = false; // an old verdict was swapped for the neutral title
 
-  const fetchNow = () => {
+  const fetchNow = (settled = false) => {
     if (task) return;
+    askedSettled = settled;
     task = $.NSTask.alloc.init;
     task.launchPath = '/usr/bin/curl';
-    task.arguments = ['-sf', '-m', '25', '-o', out, apiUrl];
+    task.arguments = ['-sf', '-m', '25', '-o', out, settled ? `${apiUrl}?settled=1` : apiUrl];
     task.launch;
   };
+  let wasSettled = false;
   const fetchDone = () => {
     if (!task || task.isRunning) return false;
+    wasSettled = askedSettled;
     const ok = task.terminationStatus === 0;
     task = null;
     const raw = ok ? $.NSString.stringWithContentsOfFileEncodingError(out, $.NSUTF8StringEncoding, null) : null;
@@ -257,7 +263,10 @@ function run(argv) {
           if ($.getppid() !== parentPid) app.terminate(null);
           if (fetchDone()) {
             titleCleared = false;
-            if (renderTo) {
+            // An early answer: ask once more for the complete one (same user action, not polling).
+            // Only once: if the complete answer failed, the early one stays until the next action.
+            if (data?.pending?.length && !wasSettled) fetchNow(true);
+            if (renderTo && !task) {
               const { view } = buildPopup();
               const rep = view.bitmapImageRepForCachingDisplayInRect(view.bounds);
               view.cacheDisplayInRectToBitmapImageRep(view.bounds, rep);

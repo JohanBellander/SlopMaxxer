@@ -63,6 +63,16 @@ test('the menu bar drops an old verdict and says when the server is gone', () =>
   assert.ok(down.items.some((i) => i.text === 'SlopMaxxer is not reachable.' && i.color === 'red'));
 });
 
+test('the menu bar marks accounts still answering and asks once for the complete answer', () => {
+  const { items } = menubar.popupModel({ ...slop, pending: ['codex'] }, now, now);
+  const at = items.findIndex((i) => i.kind === 'account' && i.text.startsWith('codex/'));
+  assert.equal(items[at + 1].text, 'reading…');
+  const src = fs.readFileSync(MENUBAR_SCRIPT, 'utf8');
+  assert.match(src, /settled=1/);
+  assert.match(src, /pending\?\.length && !wasSettled\) fetchNow\(true\)/);
+  assert.match(fs.readFileSync(TRAY_SCRIPT, 'utf8'), /-not \$wasSettled\) \{ Start-Fetch -Settled \}/);
+});
+
 test('the menu bar never polls in the background', () => {
   const src = fs.readFileSync(MENUBAR_SCRIPT, 'utf8');
   // Fetches start only at launch, on popup open and on refresh; the timer only collects results.
@@ -107,9 +117,13 @@ test('the tray script is a drag-safe click NotifyIcon popup reading the snapshot
 
 test('the live tray never waits for the server on the UI thread', () => {
   const ps = fs.readFileSync(TRAY_SCRIPT, 'utf8');
-  assert.match(ps, /GetStringAsync\(\$ApiUrl\)/);
+  assert.match(ps, /GetStringAsync\(\$url\)/);
   assert.match(ps, /Complete-Fetch/);
   assert.match(ps, /refreshing\.\.\./);
+  // Providers still answering come in through a follow-up ?settled fetch, bars shimmering meanwhile.
+  assert.match(ps, /data\.pending[\s\S]{0,80}Start-Fetch -Settled/);
+  assert.match(ps, /settled=1/);
+  assert.match(ps, /\$m\.glint/);
   // The blocking fetch is kept only for -RenderTo snapshots.
   const live = ps.slice(ps.indexOf('$notify = New-Object'));
   assert.doesNotMatch(live, /Fetch-Data|Invoke-RestMethod/);
