@@ -43,6 +43,8 @@ export function completedWindows(history, id, now) {
   }
   return [...groups.values()].filter(last => !history.some(s => s.id === id && s.kind === last.kind && s.t > last.t && s.t < last.resetsAt && s.resetsAt !== last.resetsAt)).filter(last => history.some(s => s.id === id && s.kind === last.kind &&
     s.t >= last.resetsAt && s.resetsAt > last.resetsAt))
+    // A last reading of 0% bounds nothing ("at least 0% used, at most 100% unused"), so it makes no row.
+    .filter(last => last.used > 0)
     .sort((a, b) => b.resetsAt - a.resetsAt).slice(0, 20).map(s => ({
       kind: s.kind, resetsAt: new Date(s.resetsAt).toISOString(), observedAt: new Date(s.t).toISOString(),
       usedAtLeast: Math.min(100, s.used), unusedAtMost: Math.max(0, 100 - s.used),
