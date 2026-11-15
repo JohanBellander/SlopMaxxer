@@ -29,7 +29,8 @@ export function redactString(s) {
 }
 
 export function redact(value, depth = 0) {
-  if (value == null || depth > 6) return value;
+  if (value == null) return value;
+  if (depth > 6) return '[truncated]'; // fail closed: never write what we didn't scrub
   if (typeof value === 'string') return redactString(value);
   if (value instanceof Error) return { message: redactString(value.message), code: value.code, stack: value.stack && redactString(value.stack.split('\n').slice(0, 6).join('\n')) };
   if (Array.isArray(value)) return value.slice(0, 50).map((v) => redact(v, depth + 1));
@@ -68,8 +69,10 @@ function write(level, ev, fields) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
     prune(localDay(d));
-    const line = JSON.stringify({ t: d.toISOString(), lvl: level, ev, pid: process.pid, ...redact(fields || {}) });
-    fs.appendFileSync(logFile(d), line + '\n');
+    // Core fields go first for reading and last so a caller's fields can't overwrite them.
+    const core = { t: d.toISOString(), lvl: level, ev, pid: process.pid };
+    const line = JSON.stringify({ ...core, ...redact(fields || {}), ...core });
+    fs.appendFileSync(logFile(d), line + '\n', { mode: 0o600 });
   } catch { /* logging must never break the tool */ }
 }
 

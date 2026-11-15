@@ -65,7 +65,10 @@ export async function fetchMuse({ dir }, { run = runMuseUsage } = {}) {
     accountKey: meta?.user_email || null,
     ...planOf(null, meta?.subs_active === true),
   };
-  if (!meta?.access_token && !meta?.api_key) return { ...base, error: 'Not logged in (run muse login)' };
+  // On macOS the CLI keeps the token in the Keychain and auth.json only says so; either way
+  // we just check that a login exists and let `muse usage` use it.
+  const loggedIn = meta?.access_token || meta?.api_key || meta?.storage === 'keychain';
+  if (!loggedIn) return { ...base, error: 'Not logged in (run muse login)' };
 
   let usage;
   const t0 = performance.now();
@@ -73,14 +76,14 @@ export async function fetchMuse({ dir }, { run = runMuseUsage } = {}) {
     usage = parseUsage(await run(dir));
   } catch (e) {
     const detail = (e.stderr || '').trim().split('\n')[0] || e.message;
-    log.warn('muse_cli.failed', { dir, ms: Math.round(performance.now() - t0), code: e.code, killed: e.killed, signal: e.signal, detail, stdoutHead: String(e.stdout || '').slice(0, 200) });
+    log.warn('muse_cli.failed', { dir, ms: Math.round(performance.now() - t0), code: e.code, killed: e.killed, signal: e.signal, detail, stdoutBytes: String(e.stdout || '').length });
     return { ...base, error: `muse usage failed: ${detail}`, stale: true };
   }
   const a = usage?.allowance;
   log[a ? 'info' : 'warn']('muse_cli.ok', { dir, ms: Math.round(performance.now() - t0), hasAllowance: !!a, reason: usage?.reason, tier: a?.tier, asOfAgeMin: Number.isFinite(a?.asOfMs) ? Math.round((Date.now() - a.asOfMs) / 60000) : null });
   if (!a) {
     const reason = usage?.reason === 'server_sent_no_usage' ? 'No usage reported yet — run Muse once to check' : [usage?.reason, usage?.hint].filter(Boolean).join(' — ') || 'no allowance reported';
-    return { ...base, error: reason, stale: true };
+    return { ...base, error: reason, stale: true, noUsage: usage?.reason === 'server_sent_no_usage' };
   }
 
   // Muse names its short window just "window" and does not report its length; keep it null
