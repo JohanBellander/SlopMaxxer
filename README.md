@@ -16,6 +16,8 @@ It shows where you can work next, which capacity expires soon, and what might in
 ## quick start
 
 Needs **Node.js 20+** (including npm/npx) and an existing Claude Code, Codex or Muse login.
+Runs on **macOS** and **Windows**, both tested in CI. On Linux the dashboard and terminal view should work,
+but there is no tray item and it is not tested.
 Run this from your home folder or another folder outside the SlopMaxxer source checkout:
 
 ```sh
@@ -41,6 +43,8 @@ run `cd ~` first, then the `npx` command above. This avoids npm selecting the lo
 ![node](https://img.shields.io/badge/node-%E2%89%A520-3DFF8C?style=flat-square&labelColor=050A07)
 ![deps](https://img.shields.io/badge/dependencies-0-3DFF8C?style=flat-square&labelColor=050A07)
 ![local](https://img.shields.io/badge/runs-127.0.0.1%20only-6BE3FF?style=flat-square&labelColor=050A07)
+![macos](https://img.shields.io/badge/macOS-menu%20bar-3DFF8C?style=flat-square&labelColor=050A07)
+![windows](https://img.shields.io/badge/Windows-tray-3DFF8C?style=flat-square&labelColor=050A07)
 ![claude](https://img.shields.io/badge/Claude%20Code-supported-FFB86B?style=flat-square&labelColor=050A07)
 ![codex](https://img.shields.io/badge/Codex-supported-6BE3FF?style=flat-square&labelColor=050A07)
 ![muse](https://img.shields.io/badge/Muse%20Code-supported-C792FF?style=flat-square&labelColor=050A07)
@@ -113,14 +117,28 @@ uses a free port and prints its URL. Keep the terminal open while using the dash
 Use `--port 4748` to require a specific port, or `--no-open` to open the printed link yourself.
 On Windows, a SlopMaxxer icon also lands in the tray (bottom-right): click it to see the same
 verdict as the dashboard (▲ Speed up., ▼ Slow down., …) plus how much is
-left on each account, double-click it to open the dashboard. On macOS the same verdict sits in
-the menu bar (top-right); click it for the allowances and the dashboard link. The menu bar
-refreshes when you open it and every 5 minutes while the screen is on and unlocked.
-`--no-tray` turns either off.
-On macOS, Claude Code keeps its login in the Keychain; SlopMaxxer reads it there (read-only).
+left on each account, double-click it to open the dashboard. On macOS it sits in the menu bar instead;
+see [on macOS](#on-macos). `--no-tray` turns either off.
 No accounts found? Run `claude` or `codex login` first.
-`@latest` requests the latest release; `@0.1.1` selects a specific version.
+`@latest` requests the latest release; `@0.2.0` selects a specific version.
 To install once, use `npm install -g slopmaxxer`, then run `slopmaxxer`.
+
+### on macOS
+
+- **Menu bar.** The verdict (▲ Speed up., ▼ Slow down., …) sits in the menu bar, top-right. Click it for
+  every account's allowances and reset times, a refresh button and the dashboard link. It refreshes when
+  you open it and every 5 minutes while the screen is on and unlocked, and it quits with SlopMaxxer.
+  It is a built-in macOS script (JavaScript for Automation): no app to install, no login item.
+- **Claude logins come from the Keychain.** On macOS, Claude Code stores its login in the login Keychain
+  (`Claude Code-credentials`), not in `~/.claude/.credentials.json`. SlopMaxxer reads it with Apple's
+  `security` tool and never changes it. Claude Code saves the item with that same tool, so macOS
+  normally does not ask for permission; if your login Keychain is locked, macOS asks you to unlock it.
+  A login in its own folder (`CLAUDE_CONFIG_DIR`) has its own Keychain item and is found the same way.
+- **Muse** is found in `~/.config/muse` (or `$XDG_CONFIG_HOME/muse`).
+
+<div align="center">
+<img src="docs/menubar.png" alt="The SlopMaxxer menu bar popup on macOS, showing the verdict, the next account to use and each account's 5-hour and weekly allowance" width="400">
+</div>
 
 ### run from source
 
@@ -202,7 +220,7 @@ If a live read fails (a 429, an expired token), the account keeps its last readi
 
 ## 🔒 is this safe?
 
-- **Read-only.** It never refreshes, rewrites or moves a credential, so it can't break your CLI logins.
+- **Read-only.** It never refreshes, rewrites or moves a credential, so it can't break your CLI logins. On macOS it only reads the Keychain, never writes to it.
 - **Local only.** The server binds to `127.0.0.1`. Your tokens only ever go to Anthropic and OpenAI, the same as with the CLIs. Muse numbers come from the Muse CLI itself, so that token never leaves it.
 - **Not an account switcher.** It tells you where to go. You decide whether you go.
 - **Zero dependencies.** Nothing in `node_modules` can go wrong, because there is no `node_modules`.
