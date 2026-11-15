@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { dailyFromReadings, claudeEstimatedDaily, codexDiskSamples, claudeDiskUsage, weightedUnits } from '../src/backfill.mjs';
+import { dailyFromReadings, claudeEstimatedDaily, codexDiskSamples, claudeDiskUsage, weightedUnits, READ } from '../src/backfill.mjs';
 
 const H = 3_600_000;
+const DAY_MS = 24 * H;
 const now = new Date(2026, 9, 31, 12, 0).getTime(); // local noon, Oct 31
 const day = (offset, hour) => new Date(2026, 9, 31 + offset, hour).getTime(); // offset 0 = today
 
@@ -74,5 +75,49 @@ test('reads Codex session logs and Claude transcripts from disk, incrementally',
   const usage = claudeDiskUsage(path.join(tmp, 'claude'), now);
   assert.equal(usage.length, 2);
   assert.equal(usage[0].units, 3);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+const rlLine = (t, used, extra = {}) => JSON.stringify({ timestamp: new Date(t).toISOString(), ...extra, payload: { rate_limits: { primary: { used_percent: used, window_minutes: 10080, resets_at: Math.floor(day(5, 7) / 1000) } } } });
+
+test('large logs are read in chunks; a multibyte character across a chunk boundary survives', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-'));
+  const sess = path.join(tmp, 'sessions', '2026', '10', '30');
+  fs.mkdirSync(sess, { recursive: true });
+  const lines = Array.from({ length: 20 }, (_, i) => rlLine(day(-1, 0) + i * 60_000, i, { note: 'åäö€😀'.repeat(i % 4) }));
+  fs.writeFileSync(path.join(sess, 'big.jsonl'), lines.join('\n') + '\n');
+  const before = READ.chunkBytes;
+  READ.chunkBytes = 7; // odd size: boundaries land inside lines and inside multibyte characters
+  try {
+    assert.deepEqual(codexDiskSamples(tmp, now).map((s) => s.used), lines.map((_, i) => i));
+  } finally {
+    READ.chunkBytes = before;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('cache: walking another root keeps this one; files that left the window are dropped', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-'));
+  const mk = (home, used) => {
+    const d = path.join(tmp, home, 'sessions', '2026', '10', '30');
+    fs.mkdirSync(d, { recursive: true });
+    const f = path.join(d, 'r.jsonl');
+    fs.writeFileSync(f, rlLine(day(-1, 9), used) + '\n');
+    return f;
+  };
+  const a = mk('a', 10);
+  mk('a2', 30); // has root a's path as a string prefix, but isn't under it
+  const A = path.join(tmp, 'a');
+  assert.deepEqual(codexDiskSamples(A, now).map((s) => s.used), [10]);
+  assert.deepEqual(codexDiskSamples(path.join(tmp, 'a2'), now).map((s) => s.used), [30]);
+  // Same size, different content: only a fresh read would notice.
+  fs.writeFileSync(a, rlLine(day(-1, 9), 11) + '\n');
+  assert.deepEqual(codexDiskSamples(A, now).map((s) => s.used), [10], 'root a was not re-read');
+
+  const old = (now - 9 * DAY_MS) / 1000;
+  fs.utimesSync(a, old, old);
+  assert.deepEqual(codexDiskSamples(A, now), []);
+  fs.utimesSync(a, now / 1000, now / 1000); // back in the window: it was pruned, so it's read again
+  assert.deepEqual(codexDiskSamples(A, now).map((s) => s.used), [11]);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
