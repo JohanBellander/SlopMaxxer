@@ -90,3 +90,55 @@ test('a save skips rather than writing without the lock, and takes over an aband
   assert.deepEqual(used(file), [1, 2]);
   assert.deepEqual(fs.readdirSync(home), ['history.jsonl']);
 }));
+
+// The overlapping-process cases below patch the child's fs (the same module object collect.mjs uses)
+// to play the rival process at an exact point in the save.
+const paths = (file) => `const FILE = ${JSON.stringify(file)}, LOCK = FILE + '.lock';`;
+
+test('two savers reclaiming one stale lock: one wins, the other waits, both samples survive', withHome((home, file) => {
+  fs.writeFileSync(file, line(sample(1)));
+  fs.writeFileSync(file + '.lock', 'crashed');
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(file + '.lock', old, old);
+  // Rival B reclaims the stale lock just before A renames it (so A grabs B's fresh lock), then
+  // commits its own sample and releases while A waits.
+  const hook = `${paths(file)}
+    const { renameSync, statSync } = fs;
+    let rival = null, waits = 0, restored = null;
+    fs.renameSync = (from, to) => {
+      if (from === LOCK && rival === null) { fs.unlinkSync(LOCK); fs.writeFileSync(LOCK, rival = 'B'); }
+      return renameSync(from, to);
+    };
+    fs.statSync = (p, ...rest) => {
+      if (p === LOCK && rival === 'B' && ++waits === 3) {
+        restored = fs.readFileSync(LOCK, 'utf8');
+        fs.appendFileSync(FILE, ${JSON.stringify(line(sample(3, 'b')))});
+        fs.unlinkSync(LOCK);
+        rival = 'done';
+      }
+      return statSync(p, ...rest);
+    };
+    process.on('exit', () => console.log(restored));`;
+  const r = spawnSync(...childArgs(home, saveScript(hook, [sample(2)])));
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), 'B', "A must put B's fresh lock back, not keep it");
+  assert.deepEqual(used(file), [1, 2, 3]);
+  assert.deepEqual(fs.readdirSync(home), ['history.jsonl']);
+}));
+
+test('a holder whose lock was taken over skips its commit and leaves the successor alone', withHome((home, file) => {
+  fs.writeFileSync(file, line(sample(1)));
+  // While A has its temp file written (say, paused by laptop sleep), C takes over and commits.
+  const hook = `${paths(file)}
+    const { writeFileSync } = fs;
+    fs.writeFileSync = (p, ...rest) => {
+      const out = writeFileSync(p, ...rest);
+      if (String(p).endsWith('.tmp')) { writeFileSync(LOCK, 'C'); fs.appendFileSync(FILE, ${JSON.stringify(line(sample(3, 'c')))}); }
+      return out;
+    };`;
+  const r = spawnSync(...childArgs(home, saveScript(hook, [sample(2)])));
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(used(file), [1, 3]);
+  assert.equal(fs.readFileSync(file + '.lock', 'utf8'), 'C');
+  assert.deepEqual(fs.readdirSync(home).sort(), ['history.jsonl', 'history.jsonl.lock']);
+}));

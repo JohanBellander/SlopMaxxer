@@ -31,14 +31,31 @@ function readHistoryFile() {
   return { samples, unparsable };
 }
 
-/** Takes the cross-process history lock, waiting up to 2s; a lock older than 30s is a crashed save's. */
+const LOCK_FILE = HISTORY_FILE + '.lock';
+const STALE_LOCK_MS = 30_000;
+const lockOwner = () => { try { return fs.readFileSync(LOCK_FILE, 'utf8'); } catch { return null; } };
+const isStale = (file) => Date.now() - fs.statSync(file).mtimeMs > STALE_LOCK_MS;
+
+/**
+ * Takes the cross-process history lock, waiting up to 2s, and returns its token (null if busy).
+ * A lock older than 30s is a crashed or paused save's: it's claimed by renaming it away, so only
+ * one waiter can win it, and one that turns out to be fresh (taken meanwhile) is put back.
+ */
 function lockHistory() {
-  const lock = HISTORY_FILE + '.lock';
+  const token = crypto.randomUUID();
   const until = Date.now() + 2000;
   for (;;) {
-    try { return fs.openSync(lock, 'wx'); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    // Any create error counts as busy: Windows reports EPERM while a delete is still pending.
+    try { fs.writeFileSync(LOCK_FILE, token, { flag: 'wx' }); return token; } catch {}
     try {
-      if (Date.now() - fs.statSync(lock).mtimeMs > 30_000) { log.warn('history.lock_abandoned'); fs.unlinkSync(lock); continue; }
+      if (isStale(LOCK_FILE)) {
+        const claim = `${LOCK_FILE}.stale.${token}`;
+        fs.renameSync(LOCK_FILE, claim);
+        if (isStale(claim)) log.warn('history.lock_abandoned');
+        else try { fs.linkSync(claim, LOCK_FILE); } catch {}
+        fs.unlinkSync(claim);
+        continue;
+      }
     } catch {}
     if (Date.now() > until) return null;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
@@ -57,15 +74,16 @@ function loadHistory() {
  * Adds samples and rewrites the file. Another process (a `status` run while the server is up) may
  * have saved samples since we loaded, so on-disk lines we don't hold are merged in rather than lost.
  * Written to a temp file and renamed into place, so a crash mid-write can't truncate the history.
- * The read-merge-rename runs under a lock file; if it can't be had (or the file can't be read) the
- * save is skipped and the samples stay in memory for the next one.
+ * The read-merge-rename runs under a lock file. If the lock can't be had, is lost before the rename,
+ * or the file can't be read, the save is skipped: the server keeps the samples in memory for its
+ * next save, a one-shot `status` run loses that reading.
  */
 export function saveSamples(samples) {
   const h = loadHistory();
   h.push(...samples);
   fs.mkdirSync(SLOP_HOME, { recursive: true });
-  const lock = lockHistory();
-  if (lock === null) { log.warn('history.save_skipped', { reason: 'locked', pending: samples.length }); return; }
+  const token = lockHistory();
+  if (token === null) { log.warn('history.save_skipped', { reason: 'locked', pending: samples.length }); return; }
   const temp = HISTORY_FILE + `.${process.pid}.tmp`;
   let renamed = false;
   try {
@@ -77,13 +95,14 @@ export function saveSamples(samples) {
     const cutoff = Date.now() - HISTORY_KEEP_MS;
     history = [...h, ...theirs].filter((s) => s.t >= cutoff).sort((a, b) => a.t - b.t);
     fs.writeFileSync(temp, history.map((s) => JSON.stringify(s)).join('\n') + '\n');
+    // Paused past the stale limit (e.g. laptop sleep) and taken over: don't overwrite the successor.
+    if (lockOwner() !== token) { log.warn('history.save_skipped', { reason: 'lock_lost', pending: samples.length }); return; }
     fs.renameSync(temp, HISTORY_FILE);
     renamed = true;
     log.debug('history.saved', { added: samples.length, merged: theirs.length, kept: history.length, dropped: h.length + theirs.length - history.length });
   } finally {
     if (!renamed) try { fs.unlinkSync(temp); } catch {}
-    fs.closeSync(lock);
-    try { fs.unlinkSync(HISTORY_FILE + '.lock'); } catch {}
+    if (lockOwner() === token) try { fs.unlinkSync(LOCK_FILE); } catch {}
   }
 }
 
