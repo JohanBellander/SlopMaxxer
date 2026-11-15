@@ -60,7 +60,7 @@ function toWindow(w) {
   };
 }
 
-function newestLoggedLimits(dir) {
+export function newestLoggedLimits(dir) {
   // Walk sessions/YYYY/MM/DD newest-first and grab the last rate_limits event.
   const root = path.join(dir, 'sessions');
   const desc = (p) => {
@@ -68,19 +68,51 @@ function newestLoggedLimits(dir) {
   };
   for (const y of desc(root)) for (const m of desc(path.join(root, y))) for (const d of desc(path.join(root, y, m))) {
     for (const f of desc(path.join(root, y, m, d)).filter((f) => f.endsWith('.jsonl'))) {
-      const text = fs.readFileSync(path.join(root, y, m, d, f), 'utf8');
-      const lines = text.trimEnd().split('\n');
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (!lines[i].includes('"rate_limits"')) continue;
-        try {
-          const ev = JSON.parse(lines[i]);
-          const rl = ev.payload?.rate_limits || ev.rate_limits;
-          if (rl) return { rl, at: Date.parse(ev.timestamp) || null };
-        } catch { /* partial line */ }
-      }
+      const found = lastRateLimits(path.join(root, y, m, d, f));
+      if (found) return found;
     }
   }
   return null;
+}
+
+const BLOCK = 256 * 1024;
+
+// Read the file backwards a block at a time, so a big log costs only its tail in the common case.
+function lastRateLimits(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    let pos = fs.fstatSync(fd).size;
+    let carry = Buffer.alloc(0); // start of a line that continues into the block after this one
+    while (pos > 0) {
+      const n = Math.min(BLOCK, pos);
+      pos -= n;
+      const buf = Buffer.alloc(n);
+      let got = 0;
+      while (got < n) {
+        const r = fs.readSync(fd, buf, got, n - got, pos + got);
+        if (r === 0) break; // the file shrank under us
+        got += r;
+      }
+      const data = Buffer.concat([buf.subarray(0, got), carry]);
+      for (let end = data.length; ;) {
+        const nl = end > 0 ? data.lastIndexOf(10, end - 1) : -1;
+        if (nl < 0 && pos > 0) { carry = data.subarray(0, end); break; } // may begin in the block before
+        const line = data.toString('utf8', nl + 1, end);
+        if (line.includes('"rate_limits"')) {
+          try {
+            const ev = JSON.parse(line);
+            const rl = ev.payload?.rate_limits || ev.rate_limits;
+            if (rl) return { rl, at: Date.parse(ev.timestamp) || null };
+          } catch { /* partial line */ }
+        }
+        if (nl < 0) break;
+        end = nl;
+      }
+    }
+    return null;
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 export async function fetchCodex({ dir }) {
