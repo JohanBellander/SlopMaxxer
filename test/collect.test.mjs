@@ -59,7 +59,8 @@ const script = (body) => `
   const load = (tag) => import(${JSON.stringify(new URL('../src/collect.mjs', import.meta.url).href)} + '?' + tag);
   ${body}`;
 const childArgs = (home, body, env = {}) => [process.execPath, ['--input-type=module', '-e', script(body)],
-  { env: { ...process.env, SLOPMAXXER_HOME: home, SLOPMAXXER_LOG: 'off', ...env }, encoding: 'utf8' }];
+  // An inherited FORCE_COLOR makes console.log colour numbers even into a pipe.
+  { env: { ...process.env, FORCE_COLOR: '0', SLOPMAXXER_HOME: home, SLOPMAXXER_LOG: 'off', ...env }, encoding: 'utf8' }];
 function run(home, body, env) {
   const r = spawnSync(...childArgs(home, body, env));
   assert.equal(r.status, 0, r.stderr);
