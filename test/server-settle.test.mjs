@@ -38,4 +38,6 @@ test('while a slow provider settles, refreshes join it and only the complete ans
   const complete = await (await settledReq).json();
   assert.deepEqual(complete.pending, []);
   assert.doesNotMatch(events(), /refresh needed/);
+  assert.notEqual(events(), '', 'the complete answer is written');
+  assert.ok(fs.existsSync(path.join(process.env.SLOPMAXXER_HOME, 'state.json')));
 });

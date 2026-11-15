@@ -198,14 +198,16 @@ const stored = new WeakSet(); // provider results already saved as samples, whic
 
 function assemble(config, entries, now, installCount, t0) {
   // The same login can live in two dirs — show it once, prefer the one with data, then the
-  // newer observation (a later reading may show the account ran out).
+  // newer observation (a later reading may show the account ran out); read at the same time,
+  // the more-used one, so a pass never hides that the account is out.
   const byId = new Map();
   const good = (x) => x.windows?.length && !x.stale && !x.error;
   const seen = (x) => x.observedAt ?? x.at;
+  const most = (x) => Math.max(...x.windows.map((w) => w.usedPercent ?? 0));
   for (const { a, at, carried } of entries) {
     const id = accountId(a);
     const prev = byId.get(id);
-    if (!prev || (!good(prev) && good(a)) || (good(prev) && good(a) && ((a.observedAt ?? at) > seen(prev) || ((a.observedAt ?? at) === seen(prev) && prev.carried && !carried)))) byId.set(id, { ...a, id, at, carried, raw: a, dirs: [...(prev?.dirs || []), a.dir] });
+    if (!prev || (!good(prev) && good(a)) || (good(prev) && good(a) && ((a.observedAt ?? at) > seen(prev) || ((a.observedAt ?? at) === seen(prev) && most(a) > most(prev))))) byId.set(id, { ...a, id, at, carried, raw: a, dirs: [...(prev?.dirs || []), a.dir] });
     else prev.dirs.push(a.dir);
     if (prev) log.debug('account.deduped', { id, provider: a.provider, dirs: byId.get(id).dirs, kept: byId.get(id).dir });
   }

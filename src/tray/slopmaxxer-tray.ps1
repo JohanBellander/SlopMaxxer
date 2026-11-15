@@ -371,10 +371,12 @@ function Complete-Fetch {
   $task = $script:fetchTask
   if (-not $task -or -not $task.IsCompleted) { return }
   $script:fetchTask = $null
+  $wasSettled = $script:fetchSettled
   $data = $null
   if ($task.Status -eq 'RanToCompletion') { try { $data = $task.Result | ConvertFrom-Json } catch { } }
   Apply-Data $data
-  if ($data -and $data.pending -and @($data.pending).Count) { Start-Fetch -Settled }
+  # Only once: if the complete answer failed, the early one stays until the next fetch.
+  if ($data -and $data.pending -and @($data.pending).Count -and -not $wasSettled) { Start-Fetch -Settled }
   if ($form.Visible) { Build-Popup; Place-Popup }
 }
 

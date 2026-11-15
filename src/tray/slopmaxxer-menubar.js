@@ -111,17 +111,21 @@ function run(argv) {
   let data = null;
   let fetchedAt = 0;
   let task = null;
+  let askedSettled = false; // the running fetch is the one ?settled follow-up
   let titleCleared = false; // an old verdict was swapped for the neutral title
 
   const fetchNow = (settled = false) => {
     if (task) return;
+    askedSettled = settled;
     task = $.NSTask.alloc.init;
     task.launchPath = '/usr/bin/curl';
     task.arguments = ['-sf', '-m', '25', '-o', out, settled ? `${apiUrl}?settled=1` : apiUrl];
     task.launch;
   };
+  let wasSettled = false;
   const fetchDone = () => {
     if (!task || task.isRunning) return false;
+    wasSettled = askedSettled;
     const ok = task.terminationStatus === 0;
     task = null;
     const raw = ok ? $.NSString.stringWithContentsOfFileEncodingError(out, $.NSUTF8StringEncoding, null) : null;
@@ -260,7 +264,8 @@ function run(argv) {
           if (fetchDone()) {
             titleCleared = false;
             // An early answer: ask once more for the complete one (same user action, not polling).
-            if (data?.pending?.length) fetchNow(true);
+            // Only once: if the complete answer failed, the early one stays until the next action.
+            if (data?.pending?.length && !wasSettled) fetchNow(true);
             if (renderTo && !task) {
               const { view } = buildPopup();
               const rep = view.bitmapImageRepForCachingDisplayInRect(view.bounds);

@@ -69,7 +69,8 @@ test('the menu bar marks accounts still answering and asks once for the complete
   assert.equal(items[at + 1].text, 'reading…');
   const src = fs.readFileSync(MENUBAR_SCRIPT, 'utf8');
   assert.match(src, /settled=1/);
-  assert.match(src, /pending\?\.length\) fetchNow\(true\)/);
+  assert.match(src, /pending\?\.length && !wasSettled\) fetchNow\(true\)/);
+  assert.match(fs.readFileSync(TRAY_SCRIPT, 'utf8'), /-not \$wasSettled\) \{ Start-Fetch -Settled \}/);
 });
 
 test('the menu bar never polls in the background', () => {

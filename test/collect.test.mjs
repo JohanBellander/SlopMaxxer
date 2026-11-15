@@ -53,12 +53,14 @@ test('the same login in two folders shows this poll\'s reading, not one carried 
   const installs = [{ provider: 'codex', dir: '/fake/codex-a' }, { provider: 'codex', dir: '/fake/codex-b' }];
   await collect({ installs, fetchers: { codex: async (i) => codexReading(i.dir, 10) } });
   const slowA = gate();
-  const early = await collect({ waitMs: 50, installs, onLate: () => {}, fetchers: {
+  let late;
+  const early = await collect({ waitMs: 50, installs, onLate: (p) => (late = p), fetchers: {
     codex: async (i) => (i.dir.endsWith('-a') ? (await slowA.p, codexReading(i.dir, 10)) : codexReading(i.dir, 100)),
   } });
   assert.equal(early.accounts.length, 1);
   assert.equal(early.accounts[0].windows[0].usedPercent, 100, 'the fresh reading says it ran out');
   slowA.open();
+  assert.equal((await late).accounts[0].windows[0].usedPercent, 100, 'a reading of the same moment must not hide it either');
 });
 
 test('the complete answer keeps the newer of two readings of one login, even if it came first', async () => {
