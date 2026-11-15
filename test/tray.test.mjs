@@ -17,8 +17,8 @@ test('macOS menu bar runs the shipped JXA script against the local API', () => {
   assert.equal(fs.existsSync(MENUBAR_SCRIPT), true);
 });
 
-// The script is JXA; its menu model is plain JS, so run it here without Cocoa.
-const menubar = vm.runInNewContext(fs.readFileSync(MENUBAR_SCRIPT, 'utf8') + ';({ menuModel })');
+// The script is JXA; its popup model is plain JS, so run it here without Cocoa.
+const menubar = vm.runInNewContext(fs.readFileSync(MENUBAR_SCRIPT, 'utf8') + ';({ popupModel, COLORS })');
 const now = Date.parse('2026-11-13T12:00:00Z');
 const slop = {
   guidance: { verdict: { word: 'Speed up.', arrow: '▲', tone: 'pink', why: 'Use it before reset.' },
@@ -32,32 +32,40 @@ const slop = {
   ],
 };
 
-test('the menu bar shows the server verdict and what is left, without re-deciding it', () => {
-  const { title, rows } = menubar.menuModel(slop, now, now);
-  const text = rows.map((r) => r.text || '---');
+test('the menu bar popup shows the server verdict and what is left, without re-deciding it', () => {
+  const { title, tone, items } = menubar.popupModel(slop, now, now);
+  const text = items.map((i) => i.text);
   assert.equal(title, '▲ Speed up.');
-  assert.equal(rows[1].color, 'pink');
-  assert.ok(text.includes('next task → codex/pro personal'));
-  assert.ok(text.includes('  5-hour  █████████░ 88% left · resets 3h 30m'));
-  assert.ok(!text.some((l) => l.includes('Opus'))); // only session + weekly, like the tray
-  assert.ok(text.includes('  Token expired'));
-  assert.ok(text.includes('  5-hour  ██████████ 100% left, not started'));
-  assert.equal(rows.find((r) => r.text?.includes('5% left')).color, 'warn');
+  assert.equal(tone, 'pink');
+  assert.deepEqual({ ...items.find((i) => i.kind === 'verdict') }, { kind: 'verdict', text: '▲ Speed up.', color: 'pink' });
+  assert.equal(items.find((i) => i.kind === 'next').text, 'codex/pro personal');
+  const bars = items.filter((i) => i.kind === 'bar');
+  assert.deepEqual([...bars.map((b) => b.text)], ['88% left · resets 3h 30m', '100% left, not started', '5% left · resets 2d 0h']);
+  assert.ok(!text.some((l) => l?.includes('Opus'))); // only session + weekly, like the tray
+  assert.ok(text.includes('Token expired'));
+  assert.equal(bars[2].textColor, 'warn');
   const src = fs.readFileSync(MENUBAR_SCRIPT, 'utf8');
   assert.doesNotMatch(src, /meaningfulPct|underusedGap|routeScore/);
   assert.doesNotMatch(src, /'Slow down\.'|'Keep cooking\.'|'Cooldown\.'/);
 });
 
+test('the popup uses the phosphor theme, not system colors', () => {
+  const tokens = fs.readFileSync(new URL('../public/tokens.css', import.meta.url), 'utf8');
+  for (const [name, css] of [['txt', 'txt'], ['muted', 'muted'], ['ok', 'ok'], ['pink', 'pink'], ['red', 'red'], ['claude', 'claude'], ['codex', 'codex'], ['muse', 'muse']]) {
+    assert.match(tokens, new RegExp(`--${css}: ${menubar.COLORS[name]};`, 'i'), name);
+  }
+});
+
 test('the menu bar drops an old verdict and says when the server is gone', () => {
-  assert.equal(menubar.menuModel(slop, now, now - 11 * 60_000).title, 'slop');
-  const down = menubar.menuModel(null, now);
+  assert.equal(menubar.popupModel(slop, now, now - 11 * 60_000).title, 'slop');
+  const down = menubar.popupModel(null, now);
   assert.equal(down.title, 'slop');
-  assert.equal(down.rows[0].text, 'SlopMaxxer is not reachable.');
+  assert.ok(down.items.some((i) => i.text === 'SlopMaxxer is not reachable.' && i.color === 'red'));
 });
 
 test('the menu bar never polls in the background', () => {
   const src = fs.readFileSync(MENUBAR_SCRIPT, 'utf8');
-  // Fetches start only at launch, on menu open and on Refresh now; the timer only collects results.
+  // Fetches start only at launch, on popup open and on refresh; the timer only collects results.
   assert.equal(src.match(/fetchNow\(\);/g).length, 3);
   assert.match(src, /'tick:'[\s\S]*?fetchDone\(\)/);
 });
