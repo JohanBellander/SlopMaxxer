@@ -28,7 +28,7 @@ function formatReset(resetsAt, now) {
 }
 
 // Monospaced text at the popup's width, so wrapping by characters is exact enough.
-function wrap(text, width = 56) {
+function wrap(text, width = 52) {
   const rows = [];
   let row = '';
   for (const word of String(text).split(/\s+/).filter(Boolean)) {
@@ -57,7 +57,7 @@ function popupModel(data, now = Date.now(), fetchedAt = now) {
   else if (!accounts.length) items.push({ kind: 'text', text: 'No logins found yet.', color: 'muted' });
   for (const a of accounts) {
     items.push({ kind: 'account', text: a.label ? `${a.provider}/${a.planSlug} ${a.label}` : `${a.provider}/${a.planSlug}`, color: a.provider });
-    if (a.error) items.push({ kind: 'text', text: String(a.error).slice(0, 56), color: 'red' });
+    if (a.error) items.push({ kind: 'text', text: String(a.error).slice(0, 52), color: 'red' });
     else if (a.stale) items.push({ kind: 'text', text: 'stale - last known values', color: 'muted' });
     let wins = (a.windows || []).filter((w) => w.kind === 'session' || w.kind === 'weekly');
     // Demo/reference snapshots carry fiveHour/weekly aliases instead of a windows array.
@@ -229,7 +229,12 @@ function run(argv) {
 
   const close = () => panel.orderOut(null);
   // A click in any other app closes it. Watching mouse clicks needs no Accessibility permission.
-  $.NSEvent.addGlobalMonitorForEventsMatchingMaskHandler($.NSEventMaskLeftMouseDown | $.NSEventMaskRightMouseDown, () => close());
+  // Clicks on our own menu bar item arrive here too; toggle: handles those.
+  $.NSEvent.addGlobalMonitorForEventsMatchingMaskHandler($.NSEventMaskLeftMouseDown | $.NSEventMaskRightMouseDown, () => {
+    const p = $.NSEvent.mouseLocation, f = item.button.window.frame;
+    if (p.x >= f.origin.x && p.x <= f.origin.x + f.size.width && p.y >= f.origin.y && p.y <= f.origin.y + f.size.height) return;
+    close();
+  });
 
   ObjC.registerSubclass({
     name: 'SlopMenuBarTarget',
