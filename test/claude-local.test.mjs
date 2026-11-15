@@ -135,6 +135,13 @@ test('a shared-cache reading is fresh, a lock wait is not a failure, a failed re
   assert.equal(waiting.stale, false);
   assert.match(waiting.note, /refresh in progress/);
 
+  // The same wait on a clean but hours-old reading is stale.
+  fs.writeFileSync(s.shared, JSON.stringify({ usage: s.usage, fetchedAt: Date.now() - 2 * 3600_000, retryAt: Date.now() - 1, failures: 0 }));
+  fs.writeFileSync(s.shared + '.lock', JSON.stringify({ pid: process.pid }));
+  const waitingOld = await fetchClaude({ dir: s.dir }, { home: s.home, request: () => assert.fail('network') });
+  fs.unlinkSync(s.shared + '.lock');
+  assert.equal(waitingOld.stale, true);
+
   fs.writeFileSync(s.shared, JSON.stringify({ usage: s.usage, fetchedAt: Date.now() - 6 * 60_000, retryAt: Date.now() - 1, failures: 0 }));
   const failed = await fetchClaude({ dir: s.dir }, { home: s.home, request: async () => new Response('', { status: 500 }) });
   assert.equal(failed.stale, true);

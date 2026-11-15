@@ -95,7 +95,8 @@ export function fromLastSamples(a, now, samples = loadHistory()) {
 /** Samples for a fresh reading, stamped when it was observed; a cached reading served twice is recorded once. */
 export function newSamples(a, history, now) {
   if (a.stale || a.error) return [];
-  const t = a.observedAt ?? now;
+  // Never after the analysis time: rates and outlooks ignore samples later than now.
+  const t = Math.min(a.observedAt ?? now, now);
   return a.windows
     .filter((w) => !history.some((s) => s.id === a.id && s.kind === w.kind && s.t === t))
     .map((w) => ({ t, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds }));
@@ -120,7 +121,6 @@ const accountId = (a) =>
 export async function collect() {
   const config = loadConfig();
   const installs = discoverInstalls(config);
-  const now = Date.now();
   const t0 = performance.now();
   log.info('collect.start', { installs: installs.map((i) => `${i.provider} ${i.dir}`) });
 
@@ -134,6 +134,7 @@ export async function collect() {
         log.error('fetch.threw', { provider: inst.provider, dir: inst.dir, ms: since(t), error: e });
         a = { provider: inst.provider, dir: inst.dir, error: e.message };
       }
+      const now = Date.now();
       const outcome = a.error ? 'error' : a.stale ? 'stale' : 'live';
       log[outcome === 'live' ? 'info' : 'warn']('fetch.done', {
         provider: inst.provider, dir: inst.dir, id: accountId(a), ms: since(t), outcome,
@@ -144,6 +145,8 @@ export async function collect() {
       return a;
     }),
   );
+  // Analysis time comes after the reads, so a live reading stamped mid-poll counts in this poll's rates.
+  const now = Date.now();
 
   // The same login can live in two dirs — show it once, prefer the one with data.
   const byId = new Map();

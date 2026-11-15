@@ -36,3 +36,10 @@ test('a cached reading served on two polls is recorded once, at the time it was 
   assert.deepEqual(newSamples({ ...a, stale: true }, [], now), []);
   assert.equal(newSamples({ ...a, observedAt: undefined }, first, now)[0].t, now);
 });
+
+test('a live reading stamped after the poll started still counts in that poll', () => {
+  const pollStart = now - 2000;
+  const a = { id: 'c', observedAt: now + 500, windows: [{ kind: 'session', usedPercent: 9 }] };
+  assert.equal(newSamples(a, [], pollStart)[0].t, pollStart);
+  assert.equal(newSamples(a, [], now + 1000)[0].t, now + 500);
+});

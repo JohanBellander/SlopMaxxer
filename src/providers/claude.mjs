@@ -140,8 +140,8 @@ export async function fetchClaude({ dir }, { home = SLOP_HOME, request = fetch, 
 
   return {
     ...base,
-    // Stale only when the last live call failed; a recent cached reading is still fresh.
-    stale: !!reading.failed,
+    // Stale when the last live call failed or a cached reading is too old to call fresh (e.g. a lock wait).
+    stale: !!reading.failed || (reading.cached && Date.now() - reading.fetchedAt > CFG.freshMinutes * 60_000),
     observedAt: reading.fetchedAt,
     note: reading.cached ? `${reading.error ? reading.error + '; ' : ''}${reading.source || 'cached Claude reading'} from ${new Date(reading.fetchedAt).toISOString()}${retry}` : undefined,
     windows,
