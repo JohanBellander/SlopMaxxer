@@ -35,7 +35,7 @@ const slop = {
 test('the menu bar popup shows the server verdict and what is left, without re-deciding it', () => {
   const { title, tone, items } = menubar.popupModel(slop, now, now);
   const text = items.map((i) => i.text);
-  assert.equal(title, '▲ Speed up.');
+  assert.equal(title, '▲ Speed up');
   assert.equal(tone, 'pink');
   assert.deepEqual({ ...items.find((i) => i.kind === 'verdict') }, { kind: 'verdict', text: '▲ Speed up.', color: 'pink' });
   assert.equal(items.find((i) => i.kind === 'next').text, 'codex/pro personal');

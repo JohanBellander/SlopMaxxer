@@ -43,7 +43,7 @@ function popupModel(data, now = Date.now(), fetchedAt = now) {
   const v = data?.guidance?.verdict;
   const next = data?.guidance?.next;
   const fresh = now - fetchedAt < STALE_TITLE_MS;
-  const title = v?.word && fresh ? `${v.arrow} ${v.word}` : 'slop';
+  const title = v?.word && fresh ? `${v.arrow} ${v.word.replace(/\.$/, '')}` : 'slop'; // the bar drops the full stop
   const items = [{ kind: 'header', text: '> slopmaxxer', stamp: data && fetchedAt ? new Date(fetchedAt).toTimeString().slice(0, 8) : '' }];
   if (v?.word) {
     items.push({ kind: 'text', text: '> slop verdict', color: 'muted' });
@@ -104,6 +104,21 @@ function run(argv) {
     attrs.setObjectForKey(fg, $.NSForegroundColorAttributeName);
     // JXA doesn't bridge initWithString:attributes: on every macOS, so send the selector directly.
     return $.NSAttributedString.alloc.performSelectorWithObjectWithObject('initWithString:attributes:', $(text), attrs);
+  };
+
+  // The menu bar takes on the wallpaper's colours, so the title sits on a popup-dark pill
+  // to stay readable on any wallpaper in the same colours as the popup.
+  const pill = (title, fg) => {
+    const font = mono(13, true), text = styled(title, fg, font);
+    const size = text.size, h = 26, padX = h / 2;
+    const img = $.NSImage.alloc.initWithSize($.NSMakeSize(Math.ceil(size.width) + padX * 2, h));
+    img.lockFocus;
+    color('bg').setFill;
+    $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(0, 0, img.size.width, h), h / 2, h / 2).fill; // half-circle ends
+    // Centre the capitals, not the line box (which carries descender space below them).
+    text.drawAtPoint($.NSMakePoint(padX, (h - font.capHeight) / 2 + font.descender));
+    img.unlockFocus;
+    return img;
   };
 
   let data = null;
@@ -216,7 +231,7 @@ function run(argv) {
 
   const render = () => {
     const model = popupModel(data, Date.now(), fetchedAt);
-    item.button.attributedTitle = styled(model.title, model.tone ? color(model.tone) : $.NSColor.labelColor, mono(12, true));
+    item.button.image = pill(model.title, color(model.tone || 'txt'));
     if (!panel.isVisible) return;
     const { view, height } = buildPopup();
     // Under the menu bar item, kept on screen.
