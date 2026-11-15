@@ -59,12 +59,19 @@ test('the log file never holds a deep secret, and callers cannot forge its core 
   assert.deepEqual([line.lvl, line.ev, line.t === '1970-01-01T00:00:00.000Z', line.pid === 1], ['warn', 'probe', false, false]);
   assert.equal(fs.existsSync(old), false); // older than 14 days: pruned
   if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') {
+    fs.chmodSync(file, 0o644); // a file from an older version
+    execFileSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, SLOPMAXXER_HOME: home, SLOPMAXXER_LOG: 'info' } });
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  }
 });
 
-test('a stopped server still exits by its signal, not as a success', { skip: process.platform === 'win32' && 'POSIX signals' }, async () => {
+test('a stopped server still exits by its signal, not as a success', { skip: process.platform === 'win32' && 'POSIX signals', timeout: 15000 }, async (t) => {
   const child = spawn(process.execPath, [new URL('../bin/slopmaxxer.mjs', import.meta.url).pathname, '--demo', '--no-open', '--no-tray', '--port', String(40000 + Math.floor(Math.random() * 20000))], { stdio: ['ignore', 'pipe', 'ignore'] });
-  await new Promise((resolve) => child.stdout.on('data', (d) => /ready/.test(d) && resolve()));
+  t.after(() => child.kill('SIGKILL'));
   const exit = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
+  const ready = await Promise.race([new Promise((resolve) => child.stdout.on('data', (d) => /ready/.test(d) && resolve(true))), exit.then(() => false)]);
+  assert.ok(ready, 'the demo server started');
   child.kill('SIGTERM');
   assert.deepEqual(await exit, { code: null, signal: 'SIGTERM' });
 });
