@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { derive, meterGlyphs, brailleSpark, timelineGlyphs, forecastSummary } from '../public/slop.js';
+import { derive, meterGlyphs, brailleSpark, timelineGlyphs, forecastSummary, sharedLearning } from '../public/slop.js';
 import { MOCK, shiftedMock } from '../src/mock.mjs';
 import { toSlopAccount, dailyFromSamples, diffEvents } from '../src/snapshot.mjs';
 
@@ -91,6 +91,14 @@ test('dashboard hides meter glyphs from screen readers and survives blocked stor
   for (const line of html.split('\n').filter(l => l.includes('localStorage.'))) assert.match(line, /try \{[^}]*localStorage\./);
 });
 
-test('the learning forecast the dashboard folds per account is the guidance text', () => {
-  assert.match(forecastSummary({ fresh: true, known: true }), /^Learning your usage/);
+test('the learning forecast is shown once per account only when every window would repeat it', () => {
+  const learning = { fresh: true, known: true };
+  const observed = { fresh: true, known: true, forecast: 'observed' };
+  assert.match(forecastSummary(learning), /^Learning your usage/);
+  assert.equal(sharedLearning([learning, learning]), forecastSummary(learning));
+  assert.equal(sharedLearning([learning]), null);
+  assert.equal(sharedLearning([learning, observed]), null);
+  assert.equal(sharedLearning([]), null);
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /S\.sharedLearning\(a\.windows\)/);
 });

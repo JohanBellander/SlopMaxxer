@@ -154,17 +154,15 @@ const runs = (rs, a) => rs.map((r) => {
 
 const logLine = (e) => { const c = LEVEL[e.level] || LEVEL.INFO; return `<div class="logline"><span class="muted">${fmt.hm(e.ts)}</span><span class="${c[0]}" style="font-weight:700">${esc(e.level)}</span><span class="${c[1]}">${esc(e.msg)}</span></div>`; };
 
-// The "still learning" forecast; shown once per account when every window would repeat it.
-const LEARNING = S.forecastSummary({ fresh: true, known: true });
-
-function meterBlock(label, w, a, hideLearning) {
+// shared: a forecast line shown once for the account instead of under each window
+function meterBlock(label, w, a, shared) {
   const bar = `<span aria-hidden="true">${runs(S.meterGlyphs(w, 24), a)}</span>`;
   const forecast = S.forecastSummary(w);
   const outlook = w.fresh && !w.expired && w.outlook?.confidence === 'limited'
     ? `<div class="muted">Weekly demand estimate: ${w.outlook.low}–${w.outlook.high}% at reset, based on ${w.outlook.days} well-observed days. Limited confidence; this is not a reason to stop.</div>` : '';
   return `<div class="meter"><div><span class="muted">${esc(label)}</span> ${bar}</div>
     <div><b>${esc(S.windowSummary(w))}</b></div>
-    ${hideLearning && forecast === LEARNING ? '' : `<div class="muted">${esc(forecast)}</div>`}${outlook}</div>`;
+    ${forecast === shared ? '' : `<div class="muted">${esc(forecast)}</div>`}${outlook}</div>`;
 }
 
 // Day i of the 7-day history (0 = six days ago, 6 = today), as "sat 25".
@@ -174,11 +172,11 @@ const dayBreakdown = (a) => (a.dailyPct || []).map((v, i) => `${dayName(i)} ${a.
 function details(a) {
   const maxDay = Math.max(20, ...(a.dailyPct || [0]));
   const completed = (a.completedWindows || []).slice(0, 4);
-  const allLearning = a.windows.length > 1 && a.windows.every(w => S.forecastSummary(w) === LEARNING);
+  const learning = S.sharedLearning(a.windows);
   return `<div class="details" id="d-${a.id}">
     <div class="advice">${esc(a.reason)}</div>
-    ${a.windows.map(w => meterBlock(w.label, w, a, allLearning)).join('')}
-    ${allLearning ? `<div class="muted">${esc(LEARNING)}</div>` : ''}
+    ${a.windows.map(w => meterBlock(w.label, w, a, learning)).join('')}
+    ${learning ? `<div class="muted">${esc(learning)}</div>` : ''}
     <div class="stats">
       <span>Last reading: <b>${a.observedAt ? esc(fmt.dayTime(a.observedAt)) : 'unknown'}</b></span>
       ${a.resetCredits != null ? `<span>Reset credits: <b>${a.resetCredits}</b> · not assumed redeemed</span>` : ''}

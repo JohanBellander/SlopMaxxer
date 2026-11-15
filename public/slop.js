@@ -1,6 +1,6 @@
 // Display helpers; decisions live in the shared guidance module.
 export * from './guidance.js';
-import { CFG } from './guidance.js';
+import { CFG, forecastSummary } from './guidance.js';
 const minutesBetween = (a, b) => (new Date(b) - new Date(a)) / 60000;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -9,6 +9,12 @@ export function meterGlyphs(w, width) {
   if (!w.known || w.none || w.idle) return [{ text: '┄'.repeat(width), role: 'faint' }];
   const used = Math.round(w.usedPct / 100 * width);
   return [{ text: '━'.repeat(used), role: 'used' }, { text: '─'.repeat(width - used), role: 'faint' }];
+}
+
+/** The "still learning" forecast when every one of several windows would repeat it (show it once), else null. */
+export function sharedLearning(windows) {
+  const learning = forecastSummary({ fresh: true, known: true });
+  return windows.length > 1 && windows.every(w => forecastSummary(w) === learning) ? learning : null;
 }
 
 /** 7-day refill strip, one glyph per 2h starting at local midnight today. */
