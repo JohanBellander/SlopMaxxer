@@ -43,6 +43,41 @@ test('a slow provider does not hold up the others: early answer first, complete 
   assert.equal(savedCount(), 4, 'the late Muse reading is stored once; Claude is not stored twice');
 });
 
+const gate = () => { let open; const p = new Promise((r) => (open = r)); return { p, open }; };
+const codexReading = (dir, used) => ({
+  provider: 'codex', dir, email: 'same@example.test', accountKey: 'same-login', plan: 'Pro', planSlug: 'pro',
+  windows: [{ kind: 'weekly', label: 'Weekly', usedPercent: used, windowSeconds: 7 * 86400, resetsAt: Date.now() + 86400_000 }],
+});
+
+test('the same login in two folders shows this poll\'s reading, not one carried from before', async () => {
+  const installs = [{ provider: 'codex', dir: '/fake/codex-a' }, { provider: 'codex', dir: '/fake/codex-b' }];
+  await collect({ installs, fetchers: { codex: async (i) => codexReading(i.dir, 10) } });
+  const slowA = gate();
+  const early = await collect({ waitMs: 50, installs, onLate: () => {}, fetchers: {
+    codex: async (i) => (i.dir.endsWith('-a') ? (await slowA.p, codexReading(i.dir, 10)) : codexReading(i.dir, 100)),
+  } });
+  assert.equal(early.accounts.length, 1);
+  assert.equal(early.accounts[0].windows[0].usedPercent, 100, 'the fresh reading says it ran out');
+  slowA.open();
+});
+
+test('two polls waiting on the same slow provider store its reading once', async () => {
+  const installs = [{ provider: 'muse', dir: '/fake/muse-overlap' }];
+  const lines = () => fs.readFileSync(path.join(process.env.SLOPMAXXER_HOME, 'history.jsonl'), 'utf8').trim().split('\n').length;
+  const r = (used) => ({ ...codexReading('/fake/muse-overlap', used), provider: 'muse', accountKey: 'muse-overlap' });
+  await collect({ installs, fetchers: { muse: async () => r(10) } });
+  const before = lines();
+  const slow = gate();
+  const fetchers = { muse: async () => (await slow.p, r(40)) };
+  const lates = [];
+  await collect({ waitMs: 20, installs, fetchers, onLate: (p) => lates.push(p) });
+  await collect({ waitMs: 20, installs, fetchers, onLate: (p) => lates.push(p) });
+  slow.open();
+  await Promise.all(lates);
+  assert.equal(lates.length, 2);
+  assert.equal(lines() - before, 1);
+});
+
 const H = 3_600_000;
 const now = Date.parse('2026-11-14T07:30:00Z');
 const samples = [

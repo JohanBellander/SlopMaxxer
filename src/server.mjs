@@ -19,7 +19,7 @@ const EARLY_ANSWER_MS = 1000;
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' };
 
-export function startServer({ port = 4747, demo = false, fallbackPort = false, warm = true, onReady, onError } = {}) {
+export function startServer({ port = 4747, demo = false, fallbackPort = false, warm = true, poll = collect, onReady, onError } = {}) {
   const config = loadConfig();
   const pollMs = Math.max(60_000, (config.pollSeconds || 120) * 1000);
   let snapshot = null; // classic shape: /api/snapshot (classic.html, CLI)
@@ -39,13 +39,19 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, w
       log.debug('poll.joined', { reason });
       return inflight;
     }
+    // A slow provider is still answering this poll: serve the early answer, don't start another.
+    if (settling) {
+      log.debug('poll.settling', { reason });
+      return Promise.resolve(snapshot);
+    }
     const prevAt = fetchedAt;
     const t0 = (fetchedAt = Date.now());
     log.info('poll.start', { reason, sinceLastSec: prevAt ? Math.round((t0 - prevAt) / 1000) : null });
     const publish = (s, ev) => {
       snapshot = s;
       try {
-        slop = { ...buildSlopSnapshot(s, { ms: Date.now() - t0 }), pending: s.pending || [] };
+        // An early answer is a passing state: only the complete one writes events and state.
+        slop = { ...buildSlopSnapshot(s, { ms: Date.now() - t0, persist: !s.pending?.length }), pending: s.pending || [] };
         log.info(ev, { ms: Date.now() - t0, accounts: slop.accounts.length, pending: s.pending?.length ? s.pending : undefined });
       } catch (e) {
         console.error('[slopmaxxer] snapshot build failed:', e.message);
@@ -53,12 +59,13 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, w
       }
     };
     const onLate = (late) => {
-      settling = late
+      const p = late
         .then((s) => publish(s, 'poll.settled'))
         .catch((e) => log.error('poll.failed', { ms: Date.now() - t0, late: true, error: e }))
-        .finally(() => (settling = null));
+        .finally(() => { if (settling === p) settling = null; });
+      settling = p;
     };
-    inflight = collect({ waitMs: EARLY_ANSWER_MS, onLate })
+    inflight = poll({ waitMs: EARLY_ANSWER_MS, onLate })
       .then((s) => publish(s, 'poll.done'))
       .catch((e) => {
         console.error('[slopmaxxer] poll failed:', e.message);

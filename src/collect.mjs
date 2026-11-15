@@ -194,19 +194,25 @@ export async function collect({ waitMs = Infinity, onLate, installs: given, fetc
  * counted by an earlier pass (or comes from the previous poll while its provider is still
  * answering): it is shown but never stored again as a new sample.
  */
+const stored = new WeakSet(); // provider results already saved as samples, whichever poll assembled them
+
 function assemble(config, entries, now, installCount, t0) {
-  // The same login can live in two dirs — show it once, prefer the one with data.
+  // The same login can live in two dirs — show it once, prefer the one with data, and a
+  // reading from this pass over one carried from before (it may show the account ran out).
   const byId = new Map();
+  const good = (x) => x.windows?.length && !x.stale && !x.error;
   for (const { a, at, carried } of entries) {
     const id = accountId(a);
     const prev = byId.get(id);
-    if (!prev || ((!prev.windows?.length || prev.stale || prev.error) && a.windows?.length && !a.stale && !a.error)) byId.set(id, { ...a, id, at, carried, dirs: [...(prev?.dirs || []), a.dir] });
+    if (!prev || (!good(prev) && good(a)) || (good(prev) && good(a) && prev.carried && !carried)) byId.set(id, { ...a, id, at, carried, raw: a, dirs: [...(prev?.dirs || []), a.dir] });
     else prev.dirs.push(a.dir);
     if (prev) log.debug('account.deduped', { id, provider: a.provider, dirs: byId.get(id).dirs, kept: byId.get(id).dir });
   }
 
   const nicknames = config.nicknames || {};
-  const accounts = [...byId.values()].map((a) => (a.error ? fromLastSamples(a, now) || a : a)).map(({ at, carried, ...a }) => {
+  const accounts = [...byId.values()].map((a) => (a.error ? fromLastSamples(a, now) || a : a)).map(({ at, carried, raw, ...a }) => {
+    if (stored.has(raw)) carried = true;
+    else if (!carried) stored.add(raw);
     a.observedAt ??= a.stale || a.error ? null : at;
     a.windows = (a.windows || []).map(w => ({ ...w, observedAt: w.observedAt ?? a.observedAt }));
     const freshSamples = a.stale || a.error || carried ? [] : a.windows.map(w => ({ t: at, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds }));
