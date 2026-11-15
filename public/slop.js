@@ -24,7 +24,7 @@ export function timelineGlyphs(a, now) {
   const cells = (CFG.timelineDays * 24 * 60) / CFG.timelineCellMin;
   const cellOf = (iso) => (iso ? Math.floor(minutesBetween(start, iso) / CFG.timelineCellMin) : -1);
   const nowC = cellOf(now);
-  const wkC = a.week.active ? cellOf(a.week.resetsAt) : cells;
+  const wkC = a.week.active && a.week.resetsAt ? cellOf(a.week.resetsAt) : cells;
   const fvC = a.five.active ? cellOf(a.five.resetsAt) : -1;
   const out = [];
   for (let k = 0; k < cells; k++) {

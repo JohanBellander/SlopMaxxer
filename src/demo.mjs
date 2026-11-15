@@ -22,6 +22,6 @@ export function demoSnapshot(now = Date.now()) {
     { id: 'd4', provider: 'codex', email: 'side@proj.io', plan: 'Plus', windows: [w('weekly', 100, 30)], resetCredits: 1, spark: spark(30, 100) },
     { id: 'd5', provider: 'claude', email: 'speedrun@lab.ai', plan: 'Max 5x', windows: [w('session', 70, 1.5), w('weekly', 82, 90)], resetCredits: null, spark: spark(20, 82) },
   ];
-  const accounts = raw.map((a) => ({ ...analyzeAccount(a, now, { weekly: a.id === 'd5' ? 1.6 : null }), dirs: [], nickname: null }));
+  const accounts = raw.map((a) => ({ ...analyzeAccount(a, now), dirs: [], nickname: null }));
   return { generatedAt: now, accounts, nextUp: pickNext(accounts)?.id ?? null, demo: true };
 }

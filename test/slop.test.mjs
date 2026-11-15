@@ -25,6 +25,12 @@ test('meter and sparkline have the requested widths without a mandatory pace mar
   assert.equal(timelineGlyphs(vm.accounts[0], vm.now).map(r => r.text).join('').length, 84);
 });
 
+test('timeline without a weekly reset time draws no projection or weekly marker', () => {
+  const a = { week: { active: true, resetsAt: null }, five: { active: false, resetsAt: null } };
+  const roles = timelineGlyphs(a, '2026-11-15T12:00:00').map(r => r.role);
+  assert.deepEqual(roles, ['faint', 'now', 'used']);
+});
+
 test('adapter maps a live Claude account and a weekly-only Codex account', () => {
   const now = Date.parse('2026-10-31T12:00:00Z');
   const claude = toSlopAccount({
