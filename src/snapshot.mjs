@@ -6,6 +6,7 @@ import path from 'node:path';
 import { SLOP_HOME, defaultMuseDir } from './discover.mjs';
 import { derive } from '../public/slop.js';
 import { log } from './log.mjs';
+import { sameReset } from './history.mjs';
 import { dayIndex } from './backfill.mjs';
 
 const EVENTS_FILE = path.join(SLOP_HOME, 'events.jsonl');
@@ -104,7 +105,8 @@ export function diffEvents(prev, vm, nowIso) {
     const name = a.label ? `${a.slug} ${a.label}` : a.slug;
     if (!p || p.status !== a.status) out.push({ ts: nowIso, level: a.status === 'blocked' ? 'WARN' : 'INFO',
       accountId: a.id, msg: `${name}: ${a.action}. ${a.reason}` });
-    if (p && a.fresh && a.week.resetsAt && p.weekReset && Date.parse(a.week.resetsAt) > Date.parse(p.weekReset))
+    if (p && a.fresh && a.week.resetsAt && p.weekReset && Date.parse(a.week.resetsAt) > Date.parse(p.weekReset) &&
+        !sameReset(a.week.resetsAt, p.weekReset))
       out.push({ ts: nowIso, level: 'INFO', accountId: a.id, msg: `${name}: new weekly window observed.` });
   }
   return out;
@@ -117,7 +119,7 @@ export function stateOf(vm, nowIso, prev = {}) {
   const ids = vm.accounts.filter(a => a.status === 'blocked').map(a => a.id).sort().join(',');
   const available = vm.accounts.filter(a => a.usable && a.status !== 'restricted').map(a => a.id);
   // Count observed intervals only; gaps and reset crossings are not lost work.
-  const sameWindows = vm.accounts.every(a => a.windows.every(w => prev.accounts?.[a.id]?.resets?.[w.kind] === w.resetsAt));
+  const sameWindows = vm.accounts.every(a => a.windows.every(w => sameReset(prev.accounts?.[a.id]?.resets?.[w.kind], w.resetsAt)));
   if (mixed && prev.mixed && ids === prev.blockedIds && available.some(id => prev.available?.includes(id)) &&
       sameWindows && interval > 0 && interval <= 5) opportunityMinutes += interval;
   return { version: 2, nextId: vm.next?.id || null, at: nowIso, mixed, blockedIds: ids, available, opportunityMinutes,

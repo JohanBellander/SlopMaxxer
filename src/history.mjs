@@ -1,13 +1,19 @@
 // Readings are percentages, never credentials or transcript content.
 const H = 3600000, DAY = 24 * H;
 const finite = n => typeof n === 'number' && Number.isFinite(n);
+const RESET_JITTER_MS = 60000;
+/** Same window? Codex reports one window's reset ~1 s apart between readings. Takes ms or ISO strings. */
+export function sameReset(a, b) {
+  if (a == null || b == null) return a === b;
+  return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= RESET_JITTER_MS;
+}
 const quantile = (values, p) => {
   const sorted = values.slice().sort((a, b) => a - b);
   return sorted[Math.floor((sorted.length - 1) * p)];
 };
 
 export function recentRate(history, id, w, now) {
-  const points = history.filter(s => s.id === id && s.kind === w.kind && s.resetsAt === w.resetsAt &&
+  const points = history.filter(s => s.id === id && s.kind === w.kind && sameReset(s.resetsAt, w.resetsAt) &&
     s.t <= now && now - s.t <= 90 * 60000 && finite(s.used)).sort((a, b) => a.t - b.t);
   const learning = { confidence: 'learning', samples: points.length, spanMinutes: 0, low: null, high: null };
   if (!w.resetsAt || points.length < 4) return learning;
@@ -52,7 +58,7 @@ export function weeklyOutlook(history, id, w, now) {
   const today = Math.floor(now / DAY);
   for (let i=1; i<pts.length; i++) {
     const a=pts[i-1], b=pts[i], dt=b.t-a.t, day=Math.floor(b.t/DAY);
-    if (dt <= 0 || dt > 10*60000 || day === today || Math.floor(a.t/DAY) !== day || a.resetsAt !== b.resetsAt || b.used < a.used) continue;
+    if (dt <= 0 || dt > 10*60000 || day === today || Math.floor(a.t/DAY) !== day || !sameReset(a.resetsAt, b.resetsAt) || b.used < a.used) continue;
     const d=days.get(day) || { coverage:0, usage:0 };
     d.coverage+=dt; d.usage+=b.used-a.used; days.set(day,d);
   }
