@@ -87,8 +87,6 @@ No setup. No accounts to add. No API keys. It just reads what's already there.
 | **History and events** | Daily usage, observed availability changes, and reset confirmations |
 | **Six themes** | phosphor, tokyo, gruvbox, paper, synth, graphite |
 
-The screenshots below show the earlier score-based design; current guidance uses availability and reset opportunities.
-
 <div align="center">
 <img src="docs/theme-synth.png" alt="synth theme" width="49%"> <img src="docs/theme-tokyo.png" alt="tokyo theme" width="49%">
 <img src="docs/theme-gruvbox.png" alt="gruvbox theme" width="49%"> <img src="docs/theme-paper.png" alt="paper theme" width="49%">
