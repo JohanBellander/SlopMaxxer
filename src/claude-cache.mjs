@@ -35,9 +35,13 @@ export async function cachedClaudeUsage({ home, key, request, now = Date.now }) 
   } catch (e) {
     if (e.code !== 'EEXIST') throw e;
     // Recover locks from crashed processes; an empty lock may still be being initialized.
+    // Age wins over the PID check: after a reboot the recorded PID may belong to an unrelated process.
+    // The request times out after 15s, so a lock older than a minute is never live.
     const owner = read(lock);
-    let abandoned = !owner && Date.now() - fs.statSync(lock).mtimeMs > 60_000;
-    if (Number.isInteger(owner?.pid) && owner.pid > 0) {
+    let age = 0;
+    try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch {}
+    let abandoned = age > 60_000;
+    if (!abandoned && Number.isInteger(owner?.pid) && owner.pid > 0) {
       try { process.kill(owner.pid, 0); } catch (err) { abandoned = err.code === 'ESRCH'; }
     }
     log[abandoned ? 'warn' : 'debug']('claude_cache.locked', { cacheId, ownerPid: owner?.pid, abandoned });
