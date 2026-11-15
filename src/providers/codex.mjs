@@ -87,8 +87,13 @@ function lastRateLimits(file) {
       const n = Math.min(BLOCK, pos);
       pos -= n;
       const buf = Buffer.alloc(n);
-      fs.readSync(fd, buf, 0, n, pos);
-      const data = Buffer.concat([buf, carry]);
+      let got = 0;
+      while (got < n) {
+        const r = fs.readSync(fd, buf, got, n - got, pos + got);
+        if (r === 0) break; // the file shrank under us
+        got += r;
+      }
+      const data = Buffer.concat([buf.subarray(0, got), carry]);
       for (let end = data.length; ;) {
         const nl = end > 0 ? data.lastIndexOf(10, end - 1) : -1;
         if (nl < 0 && pos > 0) { carry = data.subarray(0, end); break; } // may begin in the block before

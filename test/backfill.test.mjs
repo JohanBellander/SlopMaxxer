@@ -80,17 +80,47 @@ test('reads Codex session logs and Claude transcripts from disk, incrementally',
 
 const rlLine = (t, used, extra = {}) => JSON.stringify({ timestamp: new Date(t).toISOString(), ...extra, payload: { rate_limits: { primary: { used_percent: used, window_minutes: 10080, resets_at: Math.floor(day(5, 7) / 1000) } } } });
 
-test('large logs are read in chunks; a multibyte character across a chunk boundary survives', () => {
+const claudeMsg = (id, t) => JSON.stringify({ type: 'assistant', timestamp: new Date(t).toISOString(), message: { id, model: 'claude-sonnet-5-5', usage: { input_tokens: 1_000_000, output_tokens: 0 } } });
+
+for (const size of [1, 7]) {
+  test(`reads in ${size}-byte chunks; multibyte characters across a chunk boundary decode intact`, () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-'));
+    const proj = path.join(tmp, 'projects', 'repo');
+    fs.mkdirSync(proj, { recursive: true });
+    // Message ids are the dedupe key: a corrupted decode turns å and ä into the same U+FFFD pair.
+    fs.writeFileSync(path.join(proj, 's.jsonl'), [claudeMsg('å', day(0, 9)), claudeMsg('ä', day(0, 9)), claudeMsg('å', day(0, 9))].join('\n') + '\n');
+    const before = READ.chunkBytes;
+    READ.chunkBytes = size;
+    try {
+      assert.equal(claudeDiskUsage(tmp, now).length, 2);
+    } finally {
+      READ.chunkBytes = before;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+}
+
+test('a read error mid-file keeps the progress; the next poll resumes without duplicates', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-'));
   const sess = path.join(tmp, 'sessions', '2026', '10', '30');
   fs.mkdirSync(sess, { recursive: true });
-  const lines = Array.from({ length: 20 }, (_, i) => rlLine(day(-1, 0) + i * 60_000, i, { note: 'åäö€😀'.repeat(i % 4) }));
-  fs.writeFileSync(path.join(sess, 'big.jsonl'), lines.join('\n') + '\n');
+  const lines = Array.from({ length: 10 }, (_, i) => rlLine(day(-1, 0) + i * 60_000, i));
+  const f = path.join(sess, 'r.jsonl');
+  fs.writeFileSync(f, lines.join('\n') + '\n');
   const before = READ.chunkBytes;
-  READ.chunkBytes = 7; // odd size: boundaries land inside lines and inside multibyte characters
+  const realRead = fs.readSync;
+  READ.chunkBytes = 64;
+  let calls = 0;
+  let bytes = 0;
+  fs.readSync = (...args) => { if (++calls === 20) throw new Error('EIO'); const n = realRead(...args); bytes += n; return n; };
   try {
+    assert.throws(() => codexDiskSamples(tmp, now), /EIO/);
+    const done = bytes;
+    bytes = 0;
     assert.deepEqual(codexDiskSamples(tmp, now).map((s) => s.used), lines.map((_, i) => i));
+    assert.equal(bytes, fs.statSync(f).size - done, 'resumed at the saved offset');
   } finally {
+    fs.readSync = realRead;
     READ.chunkBytes = before;
     fs.rmSync(tmp, { recursive: true, force: true });
   }
