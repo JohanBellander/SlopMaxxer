@@ -65,6 +65,7 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
   // No background timer: re-poll only when someone asks and the reading has aged past pollMs.
   // A forced refresh (the dashboard's sync button) still waits FORCE_MIN_MS after the last poll started.
   const ensureFresh = (force) => {
+    if (inflight) return inflight; // join a running poll, even inside the cooldown
     const forced = force && Date.now() - fetchedAt >= FORCE_MIN_MS;
     // A failed first poll leaves no snapshot; retrying it waits the same floor, or every GET would poll.
     const first = !snapshot && (!fetchedAt || Date.now() - fetchedAt >= FORCE_MIN_MS);

@@ -111,6 +111,29 @@ test('a failed first poll is not retried on every request', async (t) => {
   assert.equal(polls, 1);
 });
 
+test('a request during a running poll waits for it instead of answering empty', async (t) => {
+  let polls = 0;
+  let release;
+  const gate = new Promise(resolve => (release = resolve));
+  const port = await listen(t, { collector: async () => (polls++, await gate, demoSnapshot()) });
+  const body = () => new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port, path: '/api/slop' }, (res) => {
+      let text = '';
+      res.on('data', (c) => (text += c));
+      res.on('end', () => resolve(JSON.parse(text)));
+    }).on('error', reject);
+  });
+  const first = body();
+  await new Promise(resolve => setTimeout(resolve, 20)); // let the first request start the poll
+  const second = body();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  release();
+  const [a, b] = await Promise.all([first, second]);
+  assert.ok(a.accounts.length > 0);
+  assert.ok(b.accounts.length > 0);
+  assert.equal(polls, 1);
+});
+
 test('a handler error answers 500 and the server keeps running', async (t) => {
   const circular = {};
   circular.self = circular;
