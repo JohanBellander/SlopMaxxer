@@ -249,3 +249,41 @@ test('one account used up and another only stale still gives direction',()=>{
  assert.equal(vm([used,staleCapped]).verdict.word,'Cooldown.');
  assert.equal(vm([staleCapped]).verdict.word,'Refresh before deciding.');
 });
+test('a tighter window that outlasts an expiring one caps its opportunity',()=>{
+ const healthy=a([w('session',10,4),w('weekly',20,130)],{id:'h'});
+ const nearlyOut=a([w('session',93,3),w('weekly',40,2)]);
+ const capped=a([w('session',85,4),w('weekly',50,3)],{id:'b'});
+ for(const acct of [nearlyOut,capped]){
+   const result=vm([acct]);
+   assert.ok(!['expiring','underused'].includes(result.accounts[0].status)); assert.notEqual(result.verdict.word,'Speed up.');
+   assert.equal(vm([acct,healthy]).next.id,'h');
+ }
+ assert.equal(vm([nearlyOut]).accounts[0].status,'limited');
+ assert.equal(vm([capped]).accounts[0].status,'available');
+ const shared=deriveAccount(a([w('session',60,4),w('weekly',40,2)]),now);
+ assert.equal(shared.status,'expiring');
+ assert.match(shared.reason,/^weekly resets in 2h 0m with 60% left, but session has only 40% left until it resets/);
+});
+test('underused compares only usable capacity with time left',()=>{
+ const healthy=a([w('session',10,4),w('weekly',20,130)],{id:'h'});
+ const codexRepro=a([w('session',20,2),w('weekly',75,100)]);
+ const museRepro=a([w('session',20,2.5),w('weekly',75,100)],{id:'m'});
+ for(const acct of [codexRepro,museRepro]){
+   const result=vm([acct]);
+   assert.ok(!['expiring','underused'].includes(result.accounts[0].status)); assert.notEqual(result.verdict.word,'Speed up.');
+   assert.doesNotMatch(result.accounts[0].reason,/Pick up the pace/);
+ }
+ assert.equal(vm([codexRepro,healthy]).next.id,'h');
+ const sessionCapped=deriveAccount(a([w('session',40,.5),w('weekly',85,100)]),now);
+ assert.notEqual(sessionCapped.status,'expiring');
+ const capped=deriveAccount(a([w('session',9,1.1),w('weekly',27,39.5)]),now);
+ assert.equal(capped.status,'underused');
+ assert.match(capped.reason,/^session allowance is capped at 73% by weekly until it resets, but only 22% of its window is left/);
+});
+test('a limiter that resets first leaves the expiring opportunity intact',()=>{
+ const acct=deriveAccount(a([w('session',85,.5),w('weekly',40,2)]),now);
+ assert.equal(acct.status,'expiring'); assert.equal(acct.opportunity.kind,'weekly');
+ assert.match(acct.reason,/^60% of weekly remains/);
+ const low=deriveAccount(a([w('session',93,.5),w('weekly',40,2)]),now);
+ assert.equal(low.status,'limited'); assert.equal(low.opportunity.kind,'weekly');
+});
