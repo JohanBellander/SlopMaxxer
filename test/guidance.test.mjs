@@ -167,6 +167,11 @@ test('completed windows report lower bounds and gaps, never invented exact usage
  assert.equal(done[0].usedAtLeast,94);assert.equal(done[0].unusedAtMost,6);assert.equal(done[0].nearReset,false);
  assert.equal(completedWindows(rows.slice(0,1),'a',now+60000).length,0);
 });
+test('a completed window last read at 0% used makes no row, since it bounds nothing',()=>{
+ const rows=[{id:'a',kind:'session',t:now-296*60000,resetsAt:now,used:0},{id:'a',kind:'session',t:now+60000,resetsAt:now+5*H,used:4},
+ {id:'a',kind:'weekly',t:now-H,resetsAt:now,used:1},{id:'a',kind:'weekly',t:now+60000,resetsAt:now+168*H,used:0}];
+ assert.deepEqual(completedWindows(rows,'a',now+60000).map(r=>[r.kind,r.usedAtLeast]),[['weekly',1]]);
+});
 test('weekly forecast never treats offline time as zero usage',()=>{
  assert.equal(weeklyOutlook(samples(),'a',{kind:'weekly',usedPercent:20,resetsAt:now+168*H},now).confidence,'learning');
 });
