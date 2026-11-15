@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.SLOPMAXXER_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-collect-'));
-const { collect } = await import('../src/collect.mjs');
+const { collect, fromLastSamples } = await import('../src/collect.mjs');
 
 const reading = (provider, used) => async () => ({
   provider, dir: `/fake/${provider}`, email: `${provider}@example.test`, accountKey: provider, plan: 'Pro', planSlug: 'pro',
@@ -41,4 +41,30 @@ test('a slow provider does not hold up the others: early answer first, complete 
   assert.equal(used(complete, 'claude'), 30);
   assert.equal(used(complete, 'muse'), 40);
   assert.equal(savedCount(), 4, 'the late Muse reading is stored once; Claude is not stored twice');
+});
+
+const H = 3_600_000;
+const now = Date.parse('2026-11-14T07:30:00Z');
+const samples = [
+  { t: now - 40 * H, id: 'm', kind: 'session', used: 40, resetsAt: now - 8 * H },
+  { t: now - 40 * H, id: 'm', kind: 'weekly', used: 8, resetsAt: now + 40 * H, windowSeconds: 604800 },
+];
+
+test('a failed read older than 12h falls back to nothing, as before', () => {
+  assert.equal(fromLastSamples({ id: 'm', provider: 'muse', error: 'muse usage failed: x' }, now, samples), null);
+  // A window with no reset time can't be aged out by one, so Muse's no-usage case keeps the cutoff.
+  const noReset = [{ t: now - 40 * H, id: 'm', kind: 'weekly', used: 42, resetsAt: null }];
+  assert.equal(fromLastSamples({ id: 'm', provider: 'muse', error: 'x', noUsage: true }, now, noReset), null);
+});
+
+test('Muse sending no usage keeps the last weekly reading until its reset and starts a fresh window', () => {
+  const a = fromLastSamples({ id: 'm', provider: 'muse', error: 'No usage reported yet — run Muse once to check', noUsage: true }, now, samples);
+  const win = a.windows.find((w) => w.kind === 'session');
+  const week = a.windows.find((w) => w.kind === 'weekly');
+  assert.deepEqual([win.usedPercent, win.resetsAt, win.idle], [0, null, true]);
+  assert.deepEqual([week.usedPercent, week.resetsAt, week.idle], [8, now + 40 * H, false]);
+  // Never presented as a live reading.
+  assert.equal(a.stale, true);
+  assert.equal(a.error, undefined);
+  assert.match(a.note, /showing the last reading from \w{3} \w{3} \d+ \d\d:\d\d/);
 });
