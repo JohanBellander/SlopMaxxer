@@ -44,7 +44,7 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, w
         snapshot = s;
         try {
           slop = buildSlopSnapshot(s, { ms: Date.now() - t0 });
-          log.info('poll.done', { ms: Date.now() - t0, accounts: slop.accounts.length, events: slop.events.length - 1 });
+          log.info('poll.done', { ms: Date.now() - t0, accounts: slop.accounts.length });
         } catch (e) {
           console.error('[slopmaxxer] snapshot build failed:', e.message);
           log.error('snapshot.build_failed', { error: e });

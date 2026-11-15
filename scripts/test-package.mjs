@@ -37,7 +37,8 @@ try {
   await once(probe, 'listening');
   const port = probe.address().port;
   await new Promise(resolve => probe.close(resolve));
-  child = spawn(process.execPath, [join(temp, 'node_modules/slopmaxxer/bin/slopmaxxer.mjs'), '--demo', '--no-open', '--port', String(port)], {
+  // No tray: it would outlive the check and, on Windows, lock the temp install.
+  child = spawn(process.execPath, [join(temp, 'node_modules/slopmaxxer/bin/slopmaxxer.mjs'), '--demo', '--no-open', '--no-tray', '--port', String(port)], {
     cwd: temp, env: { ...process.env, SLOPMAXXER_HOME: join(temp, 'state') }, windowsHide: true,
   });
   await new Promise((resolve, reject) => {
