@@ -172,12 +172,12 @@ function run(argv) {
     view.addSubview(inner);
     box(inner, 0, 0, WIDTH - 2, 4000, 'bg');
     let y = 8;
-    if (task) { label(inner, 'fetching…', 'muted', mono(11), 12, y + 24, 200); }
     for (const it of model.items) {
       if (it.kind === 'header') {
         label(inner, it.text, 'accent', mono(13, true), 12, y, 200, 18);
-        label(inner, it.stamp, 'muted', mono(11), WIDTH - 110, y + 2, 96, 15, $.NSTextAlignmentRight);
-        y += task ? 40 : 24;
+        // While fetching, the status takes the timestamp slot, so the popup keeps its height.
+        label(inner, task ? 'fetching…' : it.stamp, task ? 'accent' : 'muted', mono(11), WIDTH - 110, y + 2, 96, 15, $.NSTextAlignmentRight);
+        y += 24;
       } else if (it.kind === 'verdict') {
         label(inner, it.text, it.color, mono(19, true), 12, y, 376, 26);
         y += 28;
