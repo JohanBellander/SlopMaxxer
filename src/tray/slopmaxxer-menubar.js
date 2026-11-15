@@ -107,14 +107,19 @@ function run(argv) {
   };
 
   // The menu bar takes on the wallpaper's colours, so the title sits on a popup-dark pill
-  // to stay readable on any wallpaper in the same colours as the popup.
+  // to stay readable on any wallpaper in the same colours as the popup. 26pt fills a notch
+  // display's taller bar; a 24pt bar (or an auto-hidden one, which reports 0) gets 20pt.
   const pill = (title, fg) => {
+    const scr = item.button.window.screen || $.NSScreen.mainScreen, f = scr.frame, v = scr.visibleFrame;
+    const bar = f.origin.y + f.size.height - (v.origin.y + v.size.height);
     const font = mono(13, true), text = styled(title, fg, font);
-    const size = text.size, h = 26, padX = h / 2;
-    const img = $.NSImage.alloc.initWithSize($.NSMakeSize(Math.ceil(size.width) + padX * 2, h));
+    const size = text.size, h = Math.min(26, Math.max(bar, 24) - 4), padX = h / 2, w = Math.ceil(size.width) + padX * 2;
+    // lockFocus bakes the current display's scale; imageWithSize:flipped:drawingHandler: would
+    // follow scale changes, but its block draws nothing once AppKit calls it later from JXA.
+    const img = $.NSImage.alloc.initWithSize($.NSMakeSize(w, h));
     img.lockFocus;
     color('bg').setFill;
-    $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(0, 0, img.size.width, h), h / 2, h / 2).fill; // half-circle ends
+    $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(0, 0, w, h), h / 2, h / 2).fill; // half-circle ends
     // Centre the capitals, not the line box (which carries descender space below them).
     text.drawAtPoint($.NSMakePoint(padX, (h - font.capHeight) / 2 + font.descender));
     img.unlockFocus;
@@ -232,6 +237,7 @@ function run(argv) {
   const render = () => {
     const model = popupModel(data, Date.now(), fetchedAt);
     item.button.image = pill(model.title, color(model.tone || 'txt'));
+    item.button.setAccessibilityLabel(model.title); // the image has no text for VoiceOver
     if (!panel.isVisible) return;
     const { view, height } = buildPopup();
     // Under the menu bar item, kept on screen.
