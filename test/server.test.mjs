@@ -103,3 +103,18 @@ test('?refresh only forces a poll with the header, and never twice within 30 s',
   assert.equal(await get(port, '/api/slop?refresh', forced), 200);
   assert.equal(polls, 2);
 });
+
+test('a failed first poll is not retried on every request', async (t) => {
+  let polls = 0;
+  const port = await listen(t, { collector: async () => { polls++; throw new Error('provider down'); } });
+  for (let i = 0; i < 4; i++) assert.equal(await get(port, '/api/slop'), 200);
+  assert.equal(polls, 1);
+});
+
+test('a handler error answers 500 and the server keeps running', async (t) => {
+  const circular = {};
+  circular.self = circular;
+  const port = await listen(t, { collector: async () => circular });
+  assert.equal(await get(port, '/api/snapshot'), 500);
+  assert.equal(await get(port, '/'), 200);
+});

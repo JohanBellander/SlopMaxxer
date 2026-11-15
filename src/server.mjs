@@ -66,7 +66,9 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
   // A forced refresh (the dashboard's sync button) still waits FORCE_MIN_MS after the last poll started.
   const ensureFresh = (force) => {
     const forced = force && Date.now() - fetchedAt >= FORCE_MIN_MS;
-    const reason = forced ? 'forced' : !snapshot ? 'first' : Date.now() - fetchedAt >= pollMs ? 'aged' : null;
+    // A failed first poll leaves no snapshot; retrying it waits the same floor, or every GET would poll.
+    const first = !snapshot && (!fetchedAt || Date.now() - fetchedAt >= FORCE_MIN_MS);
+    const reason = forced ? 'forced' : first ? 'first' : snapshot && Date.now() - fetchedAt >= pollMs ? 'aged' : null;
     return reason ? refresh(reason) : undefined;
   };
 
@@ -131,8 +133,9 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
   };
 
   const json = (res, body) => {
+    const text = JSON.stringify({ ...body, pollMs }); // before the headers, so a failure can still answer 500
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(JSON.stringify({ ...body, pollMs }));
+    res.end(text);
   };
 
   const server = http.createServer(async (req, res) => {
@@ -180,7 +183,8 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
     // Old bookmarks use the same decision UI; the archived page has obsolete verdict rules.
     const file = ['/', '/classic', '/classic.html'].includes(url.pathname) ? 'index.html' : path.basename(url.pathname);
     const full = path.join(PUBLIC, file);
-    if (!fs.existsSync(full)) {
+    // Regular files only, so a directory can never reach createReadStream.
+    if (!fs.statSync(full, { throwIfNoEntry: false })?.isFile()) {
       res.writeHead(404);
       return res.end('not found');
     }
