@@ -47,7 +47,7 @@ export function deriveWindow(w, now, durationMin = WEEK_MIN) {
   const fresh = ageMinutes != null && ageMinutes <= CFG.freshMinutes && observed <= ms(now) + 60000;
   const windowMinutes = valid(w.durationMin) && w.durationMin > 0 ? w.durationMin : durationMin;
   // null = the provider reported no window length; absent = assume the kind's default length.
-  const durationKnown = w.durationMin !== null;
+  const durationKnown = w.durationMin === undefined || (valid(w.durationMin) && w.durationMin > 0);
   const timeLeftPct = remainingMin != null && windowMinutes > 0 ? clamp(remainingMin / windowMinutes * 100, 0, 100) : null;
   const unusedGapPct = known && timeLeftPct != null ? remainingPct - timeLeftPct : null;
   const rate = w.rate || {};
@@ -97,7 +97,7 @@ export function deriveAccount(a, now, { model = 'any' } = {}) {
   const interruption = applicable.filter(w => w.capRange).sort((x, y) => x.capRange[0] - y.capRange[0])[0] || null;
   // Week-to-date average pace, not a burst: warn only 2+ days into the window, and only when
   // that pace empties the weekly allowance a day or more before its reset.
-  const paced = applicable.filter(w => w.kind === 'weekly' && w.known && w.fresh && !w.idle && !w.expired && w.usedPct > 0 && w.remainingPct > CFG.limitedPct && w.remainingMin != null)
+  const paced = applicable.filter(w => w.kind === 'weekly' && w.known && w.durationKnown && w.fresh && !w.idle && !w.expired && w.usedPct > 0 && w.remainingPct > CFG.limitedPct && w.remainingMin != null)
     .map(w => ({ w, elapsed: w.durationMin - w.remainingMin, runOut: (w.durationMin - w.remainingMin) * w.remainingPct / w.usedPct }))
     .filter(p => p.elapsed >= CFG.paceMinElapsedMinutes && p.runOut <= p.w.remainingMin - CFG.paceEarlyMinutes)
     .sort((x, y) => x.runOut - y.runOut)[0] || null;

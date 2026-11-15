@@ -73,6 +73,12 @@ test('calendar-pace nudge needs a known window length',()=>{
  const muse=toSlopAccount({id:'m',provider:'muse',observedAt:now,windows:[{kind:'session',label:'Window',usedPercent:10,resetsAt:now+1.5*H,windowSeconds:null}]},now);
  assert.equal(muse.windows[0].durationMin,null);
  assert.notEqual(vm([muse]).accounts[0].status,'underused');
+ for(const bad of [0,-5,NaN]) assert.equal(vm([a([w('session',10,1.5,{durationMin:bad})])]).accounts[0].status,'available',String(bad));
+ assert.equal(vm([a([w('session',10,1.5,{durationMin:300})])]).accounts[0].status,'underused');
+});
+test('weekly pace warning needs a known window length',()=>{
+ assert.match(vm([a([w('weekly',70,72)])]).accounts[0].paceWarning,/runs out/);
+ assert.equal(vm([a([w('weekly',70,72,{durationMin:null})])]).accounts[0].paceWarning,null);
 });
 test('unknown recovery is never invented and no NaN is scored',()=>{
  const result=vm([a([w('weekly',100,2,{resetsAt:null})])]);
