@@ -120,7 +120,7 @@ verdict as the dashboard (▲ Speed up., ▼ Slow down., …) plus how much is
 left on each account, double-click it to open the dashboard. On macOS it sits in the menu bar instead;
 see [on macOS](#on-macos). `--no-tray` turns either off.
 No accounts found? Run `claude` or `codex login` first.
-`@latest` requests the latest release; `@0.1.1` selects a specific version.
+`@latest` requests the latest release; `@0.2.0` selects a specific version.
 To install once, use `npm install -g slopmaxxer`, then run `slopmaxxer`.
 
 ### on macOS
