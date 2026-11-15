@@ -198,16 +198,18 @@ const stored = new WeakSet(); // provider results already saved as samples, whic
 
 function assemble(config, entries, now, installCount, t0) {
   // The same login can live in two dirs — show it once, prefer the one with data, then the
-  // newer observation (a later reading may show the account ran out); read at the same time,
-  // the more-used one, so a pass never hides that the account is out.
+  // newer observation (a later reading may show the account ran out). Read at the same time:
+  // the one that says it is out (hard limit, then most used), so no pass hides that; then
+  // the one already stored, so a later pass doesn't switch and store it twice.
   const byId = new Map();
   const good = (x) => x.windows?.length && !x.stale && !x.error;
   const seen = (x) => x.observedAt ?? x.at;
-  const most = (x) => Math.max(...x.windows.map((w) => w.usedPercent ?? 0));
+  const rank = (x) => [x.limitReached ? 1 : 0, Math.max(...x.windows.map((w) => w.usedPercent ?? 0)), stored.has(x.raw ?? x) ? 1 : 0];
+  const outranks = (x, y) => { const [p, q] = [rank(x), rank(y)]; const i = p.findIndex((v, k) => v !== q[k]); return i >= 0 && p[i] > q[i]; };
   for (const { a, at, carried } of entries) {
     const id = accountId(a);
     const prev = byId.get(id);
-    if (!prev || (!good(prev) && good(a)) || (good(prev) && good(a) && ((a.observedAt ?? at) > seen(prev) || ((a.observedAt ?? at) === seen(prev) && most(a) > most(prev))))) byId.set(id, { ...a, id, at, carried, raw: a, dirs: [...(prev?.dirs || []), a.dir] });
+    if (!prev || (!good(prev) && good(a)) || (good(prev) && good(a) && ((a.observedAt ?? at) > seen(prev) || ((a.observedAt ?? at) === seen(prev) && outranks(a, prev))))) byId.set(id, { ...a, id, at, carried, raw: a, dirs: [...(prev?.dirs || []), a.dir] });
     else prev.dirs.push(a.dir);
     if (prev) log.debug('account.deduped', { id, provider: a.provider, dirs: byId.get(id).dirs, kept: byId.get(id).dir });
   }

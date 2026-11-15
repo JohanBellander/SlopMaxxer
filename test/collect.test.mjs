@@ -95,6 +95,26 @@ test('two polls waiting on the same slow provider store its reading once', async
   assert.equal(lines() - before, 1);
 });
 
+test('read at the same moment, a hard limit beats a higher percentage, and equal readings are stored once', async () => {
+  const lines = () => fs.readFileSync(path.join(process.env.SLOPMAXXER_HOME, 'history.jsonl'), 'utf8').trim().split('\n').length;
+  const pair = (key) => [{ provider: 'codex', dir: `/fake/${key}-a` }, { provider: 'codex', dir: `/fake/${key}-b` }];
+  const r = (dir, key, used, limitReached = false) => ({ ...codexReading(dir, used), accountKey: key, limitReached });
+
+  const tie = await collect({ installs: pair('limit'), fetchers: { codex: async (i) => (i.dir.endsWith('-a') ? r(i.dir, 'limit', 80, true) : r(i.dir, 'limit', 81)) } });
+  assert.equal(tie.accounts[0].limitReached, true);
+  assert.equal(tie.nextUp, null);
+
+  const installs = pair('equal');
+  await collect({ installs, fetchers: { codex: async (i) => r(i.dir, 'equal', 10) } });
+  const before = lines();
+  const slowA = gate();
+  let late;
+  await collect({ waitMs: 50, installs, onLate: (p) => (late = p), fetchers: { codex: async (i) => (i.dir.endsWith('-a') ? (await slowA.p, r(i.dir, 'equal', 20)) : r(i.dir, 'equal', 20)) } });
+  slowA.open();
+  await late;
+  assert.equal(lines() - before, 1, 'one reading of the login per poll');
+});
+
 const H = 3_600_000;
 const now = Date.parse('2026-11-14T07:30:00Z');
 const samples = [
