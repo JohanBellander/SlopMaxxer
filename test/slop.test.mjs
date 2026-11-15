@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { derive, meterGlyphs, brailleSpark, timelineGlyphs } from '../public/slop.js';
 import { MOCK, shiftedMock } from '../src/mock.mjs';
 import { toSlopAccount, dailyFromSamples, diffEvents } from '../src/snapshot.mjs';
@@ -59,6 +60,25 @@ test('daily usage counts gains per day and treats a drop as a reset', () => {
   assert.equal(days.length, 7);
   assert.equal(days[5], 4); // yesterday: 10 → 14
   assert.equal(days[6], 76 + 5 + 3); // today: 14 → 90, reset → 5, 5 → 8
+});
+
+test('daily usage follows local calendar days across a DST change', (t) => {
+  // TZ must be set before the process computes any dates, so run the check in a child process.
+  const code = `
+    const stockholm = new Date('2026-01-15T12:00:00Z').getTimezoneOffset() === -60 &&
+      new Date('2026-07-15T12:00:00Z').getTimezoneOffset() === -120;
+    if (!stockholm) { console.log('null'); process.exit(0); }
+    const { dailyFromSamples } = await import(${JSON.stringify(new URL('../src/snapshot.mjs', import.meta.url).href)});
+    // 2026-10-25 is the fall-back day; 00:30 local that day is 22:30Z the day before.
+    const samples = [[Date.parse('2026-10-24T20:00:00Z'), 0], [Date.parse('2026-10-24T21:30:00Z'), 1],
+      [Date.parse('2026-10-24T22:30:00Z'), 3]];
+    console.log(JSON.stringify(dailyFromSamples(samples, Date.parse('2026-10-26T11:00:00Z'))));`;
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', code],
+    { env: { ...process.env, TZ: 'Europe/Stockholm' }, encoding: 'utf8' });
+  const days = JSON.parse(out);
+  if (!days) return t.skip('this Node build ignores TZ=Europe/Stockholm (common on Windows)');
+  assert.equal(days[4], 1); // Oct 24: 23:30 local
+  assert.equal(days[5], 2); // Oct 25: 00:30 local, its own day
 });
 
 test('events describe observed capacity changes without fabricated HTTP errors or ranks', () => {
