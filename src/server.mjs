@@ -13,11 +13,16 @@ import { derive } from '../public/guidance.js';
 import { log, since } from './log.mjs';
 
 const CLIENT_LOG_MAX = 8 * 1024;
+const FORCE_MIN_MS = 30_000; // a forced refresh never polls the providers more often than this
+// DNS rebinding: a page on evil.example can resolve to 127.0.0.1, but its requests still say Host: evil.example.
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost']);
+const localHost = (host) => LOCAL_HOSTS.has(String(host || '').replace(/:\d*$/, '').toLowerCase().replace(/\.$/, ''));
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' };
 
-export function startServer({ port = 4747, demo = false, fallbackPort = false, onReady, onError } = {}) {
+// `collector` is a test seam; production always uses collect().
+export function startServer({ port = 4747, demo = false, fallbackPort = false, onReady, onError, collector = collect } = {}) {
   const config = loadConfig();
   const pollMs = Math.max(60_000, (config.pollSeconds || 120) * 1000);
   let snapshot = null; // classic shape: /api/snapshot (classic.html, CLI)
@@ -39,7 +44,7 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
     const prevAt = fetchedAt;
     const t0 = (fetchedAt = Date.now());
     log.info('poll.start', { reason, sinceLastSec: prevAt ? Math.round((t0 - prevAt) / 1000) : null });
-    inflight = collect()
+    inflight = collector()
       .then((s) => {
         snapshot = s;
         try {
@@ -58,8 +63,13 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
     return inflight;
   };
   // No background timer: re-poll only when someone asks and the reading has aged past pollMs.
+  // A forced refresh (the dashboard's sync button) still waits FORCE_MIN_MS after the last poll started.
   const ensureFresh = (force) => {
-    const reason = force ? 'forced' : !snapshot ? 'first' : Date.now() - fetchedAt >= pollMs ? 'aged' : null;
+    if (inflight) return inflight; // join a running poll, even inside the cooldown
+    const forced = force && Date.now() - fetchedAt >= FORCE_MIN_MS;
+    // A failed first poll leaves no snapshot; retrying it waits the same floor, or every GET would poll.
+    const first = !snapshot && (!fetchedAt || Date.now() - fetchedAt >= FORCE_MIN_MS);
+    const reason = forced ? 'forced' : first ? 'first' : snapshot && Date.now() - fetchedAt >= pollMs ? 'aged' : null;
     return reason ? refresh(reason) : undefined;
   };
 
@@ -124,21 +134,44 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
   };
 
   const json = (res, body) => {
+    const text = JSON.stringify({ ...body, pollMs }); // before the headers, so a failure can still answer 500
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(JSON.stringify({ ...body, pollMs }));
+    res.end(text);
   };
 
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, 'http://localhost');
-    const force = url.searchParams.has('refresh');
+    let url = null;
+    try { url = new URL(req.url, 'http://localhost'); } catch { /* e.g. "//": answered 400 below */ }
+    // Only our own clients send this header; a cross-site page can't without a preflight we never answer.
+    const force = !!url?.searchParams.has('refresh') && req.headers['x-slopmaxxer-refresh'] === '1';
     const t0 = performance.now();
     res.on('finish', () => {
-      const api = url.pathname.startsWith('/api/');
+      const api = !!url?.pathname.startsWith('/api/');
       log[res.statusCode >= 400 ? 'warn' : api ? 'info' : 'debug']('http', {
-        method: req.method, path: url.pathname, force: force || undefined, status: res.statusCode, ms: since(t0),
-        client: api ? (req.headers['user-agent'] || '').slice(0, 60) : undefined,
+        method: req.method, path: url?.pathname ?? String(req.url).slice(0, 120), force: force || undefined,
+        status: res.statusCode, ms: since(t0), client: api ? (req.headers['user-agent'] || '').slice(0, 60) : undefined,
       });
     });
+    if (!url) {
+      res.writeHead(400);
+      return res.end();
+    }
+    if (!localHost(req.headers.host)) {
+      res.writeHead(421);
+      return res.end();
+    }
+    try {
+      await route(url, force, req, res);
+    } catch (error) {
+      log.error('http.failed', { path: url.pathname, error });
+      if (!res.headersSent) {
+        res.writeHead(500);
+        res.end();
+      } else res.destroy();
+    }
+  });
+
+  const route = async (url, force, req, res) => {
     if (url.pathname === '/api/log' && req.method === 'POST') return clientLog(req, res);
     if (url.pathname === '/api/snapshot') {
       await ensureFresh(force);
@@ -151,14 +184,21 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
     // Old bookmarks use the same decision UI; the archived page has obsolete verdict rules.
     const file = ['/', '/classic', '/classic.html'].includes(url.pathname) ? 'index.html' : path.basename(url.pathname);
     const full = path.join(PUBLIC, file);
-    if (!fs.existsSync(full)) {
+    // Regular files only, so a directory can never reach createReadStream.
+    if (!fs.statSync(full, { throwIfNoEntry: false })?.isFile()) {
       res.writeHead(404);
       return res.end('not found');
     }
     const type = TYPES[path.extname(full)] || 'application/octet-stream';
     res.writeHead(200, { 'content-type': type.startsWith('text/') || type.endsWith('svg+xml') ? `${type}; charset=utf-8` : type });
-    fs.createReadStream(full).pipe(res);
-  });
+    fs.createReadStream(full)
+      .on('error', (error) => {
+        // File gone mid-serve, a directory, or the client hung up: headers are out, so just close.
+        log.warn('http.static_failed', { path: url.pathname, error });
+        res.destroy();
+      })
+      .pipe(res);
+  };
 
   let retried = false;
   server.on('error', (error) => {

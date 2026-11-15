@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { derive, deriveAccount, forecastSummary } from '../public/guidance.js';
+import { clock, derive, deriveAccount, forecastSummary } from '../public/guidance.js';
 import { stateOf, toSlopAccount } from '../src/snapshot.mjs';
 import { recentRate, completedWindows, weeklyOutlook } from '../src/history.mjs';
 const now = Date.parse('2026-10-31T12:00:00Z'), H=3600000;
@@ -52,7 +52,33 @@ test('recovery waits for every blocking limit, then selects earliest recoverable
  const both=a([w('session',100,1),w('weekly',100,72)]);
  assert.equal(vm([both]).accounts[0].recoveryAt,new Date(now+72*H).toISOString());
  const other=a([w('session',100,2),w('weekly',10,100)],{id:'b'});
- assert.match(vm([both,other]).verdict.why,/2026-10-31T14:00/);
+ assert.ok(vm([both,other]).verdict.why.includes(`Earliest known availability: after ${clock(now+2*H,now)}.`));
+});
+test('recovery times read as a local clock time, with the weekday once it is not today',()=>{
+ const pad=n=>String(n).padStart(2,'0'), at=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes());};
+ assert.equal(clock(now+H,now+H),at(now+H));
+ const later=new Date(now+72*H);
+ assert.equal(clock(later,now),['sun','mon','tue','wed','thu','fri','sat'][later.getDay()]+' '+at(later));
+ const blocked=vm([a([w('session',10,4),w('weekly',100,72)])]);
+ assert.ok(blocked.accounts[0].reason.includes(`Expected availability after ${clock(now+72*H,now)} (confirm after reset).`));
+ assert.ok(blocked.verdict.why.includes(`Earliest known availability: after ${clock(now+72*H,now)}.`));
+ assert.doesNotMatch(JSON.stringify([blocked.accounts[0].reason,blocked.verdict.why]),/\d{4}-\d\d-\d\dT/);
+ const used=a([w('weekly',100,72)],{id:'codex',provider:'codex',planSlug:'business'});
+ const stale=a([w('weekly',38,100,{observedAt:now-30*60000})],{id:'claude',stale:true});
+ assert.ok(vm([used,stale]).verdict.why.includes(`codex/business used up until ${clock(now+72*H,now)}.`));
+});
+test('calendar-pace nudge needs a known window length',()=>{
+ assert.equal(vm([a([w('session',10,1.5)])]).accounts[0].status,'underused');
+ assert.equal(vm([a([w('session',10,1.5,{durationMin:null})])]).accounts[0].status,'available');
+ const muse=toSlopAccount({id:'m',provider:'muse',observedAt:now,windows:[{kind:'session',label:'Window',usedPercent:10,resetsAt:now+1.5*H,windowSeconds:null}]},now);
+ assert.equal(muse.windows[0].durationMin,null);
+ assert.notEqual(vm([muse]).accounts[0].status,'underused');
+ for(const bad of [0,-5,NaN]) assert.equal(vm([a([w('session',10,1.5,{durationMin:bad})])]).accounts[0].status,'available',String(bad));
+ assert.equal(vm([a([w('session',10,1.5,{durationMin:300})])]).accounts[0].status,'underused');
+});
+test('weekly pace warning needs a known window length',()=>{
+ assert.match(vm([a([w('weekly',70,72)])]).accounts[0].paceWarning,/runs out/);
+ assert.equal(vm([a([w('weekly',70,72,{durationMin:null})])]).accounts[0].paceWarning,null);
 });
 test('unknown recovery is never invented and no NaN is scored',()=>{
  const result=vm([a([w('weekly',100,2,{resetsAt:null})])]);
@@ -66,6 +92,25 @@ test('model restrictions apply only to the selected model; provider filters are 
  assert.equal(vm([acct],{provider:'codex'}).next,null);
  const codex=a([w('weekly',20,100)],{provider:'codex'});
  assert.equal(vm([codex],{model:'opus'}).next,null);
+});
+test('an expired model window below its cap does not restrict the account',()=>{
+ const expired=a([w('weekly',40,100),w('weekly_sonnet',5,-.1,{scope:'sonnet'})]);
+ assert.equal(vm([expired]).accounts[0].status,'available');
+ assert.equal(vm([expired]).next.id,'a');
+ assert.equal(vm([expired],{model:'sonnet'}).accounts[0].status,'checking');
+ assert.equal(vm([expired],{model:'sonnet'}).next,null);
+ const full=a([w('weekly',20,100),w('weekly_sonnet',100,-.1,{scope:'sonnet'})]);
+ assert.equal(vm([full]).accounts[0].status,'restricted');
+ const unread=a([w('weekly',20,100),w('weekly_sonnet',null,10,{scope:'sonnet'})]);
+ assert.equal(vm([unread]).accounts[0].status,'restricted');
+ const capped=a([w('weekly',20,100),w('weekly_sonnet',100,10,{scope:'sonnet'})]);
+ assert.equal(vm([capped]).accounts[0].status,'restricted');
+ const expiredUnread=a([w('weekly',40,100),w('weekly_sonnet',null,-.1,{scope:'sonnet'})]);
+ assert.equal(vm([expiredUnread]).accounts[0].status,'restricted');
+ assert.equal(vm([expiredUnread]).next,null);
+ const expiredStale=a([w('weekly',40,100),w('weekly_sonnet',5,-.1,{scope:'sonnet',observedAt:now-10*60000})]);
+ assert.equal(vm([expiredStale]).accounts[0].status,'restricted');
+ assert.equal(vm([expiredStale]).next,null);
 });
 test('meaningful expiring capacity beats a later reset; tiny headroom does not',()=>{
  const later=a([w('weekly',20,100)]);
@@ -223,14 +268,14 @@ test('weekly pace warning projects an early run-out without disqualifying the ac
  assert.equal(vm([a([w('weekly',40,100)])]).accounts[0].paceWarning,null);
  assert.equal(vm([a([w('weekly',40,144)])]).accounts[0].paceWarning,null);
 });
-test('login token expiry warns a day ahead and stays quiet beyond that',()=>{
+test('login token warns only once it has expired',()=>{
  const soon=vm([a([w('weekly',40,100)],{tokenExpiresAt:now+3*H})]).accounts[0];
- assert.match(soon.tokenWarning,/token expires in 3h/); assert.match(soon.reason,/token expires in 3h/);
+ assert.equal(soon.tokenWarning,null); assert.doesNotMatch(soon.reason,/token/i);
  assert.equal(soon.status,'available');
  const later=vm([a([w('weekly',20,100)],{tokenExpiresAt:now+72*H})]).accounts[0];
  assert.equal(later.tokenWarning,null);
  const gone=vm([a([w('weekly',20,100)],{stale:true,tokenExpiresAt:now-H})]).accounts[0];
- assert.match(gone.tokenWarning,/token has expired/);
+ assert.match(gone.tokenWarning,/token has expired/); assert.match(gone.reason,/token has expired/);
 });
 test('adapter carries login token expiry into the snapshot as ISO',()=>{
  const normalized=toSlopAccount({id:'a',provider:'claude',observedAt:now,tokenExpiresAt:now+H,windows:[]},now);
@@ -248,4 +293,42 @@ test('one account used up and another only stale still gives direction',()=>{
  const staleCapped=a([w('weekly',100,100,{observedAt:now-30*60000})],{id:'claude',stale:true});
  assert.equal(vm([used,staleCapped]).verdict.word,'Cooldown.');
  assert.equal(vm([staleCapped]).verdict.word,'Refresh before deciding.');
+});
+test('a tighter window that outlasts an expiring one caps its opportunity',()=>{
+ const healthy=a([w('session',10,4),w('weekly',20,130)],{id:'h'});
+ const nearlyOut=a([w('session',93,3),w('weekly',40,2)]);
+ const capped=a([w('session',85,4),w('weekly',50,3)],{id:'b'});
+ for(const acct of [nearlyOut,capped]){
+   const result=vm([acct]);
+   assert.ok(!['expiring','underused'].includes(result.accounts[0].status)); assert.notEqual(result.verdict.word,'Speed up.');
+   assert.equal(vm([acct,healthy]).next.id,'h');
+ }
+ assert.equal(vm([nearlyOut]).accounts[0].status,'limited');
+ assert.equal(vm([capped]).accounts[0].status,'available');
+ const shared=deriveAccount(a([w('session',60,4),w('weekly',40,2)]),now);
+ assert.equal(shared.status,'expiring');
+ assert.match(shared.reason,/^weekly resets in 2h 0m with 60% left, but session has only 40% left until it resets/);
+});
+test('underused compares only usable capacity with time left',()=>{
+ const healthy=a([w('session',10,4),w('weekly',20,130)],{id:'h'});
+ const codexRepro=a([w('session',20,2),w('weekly',75,100)]);
+ const museRepro=a([w('session',20,2.5),w('weekly',75,100)],{id:'m'});
+ for(const acct of [codexRepro,museRepro]){
+   const result=vm([acct]);
+   assert.ok(!['expiring','underused'].includes(result.accounts[0].status)); assert.notEqual(result.verdict.word,'Speed up.');
+   assert.doesNotMatch(result.accounts[0].reason,/Pick up the pace/);
+ }
+ assert.equal(vm([codexRepro,healthy]).next.id,'h');
+ const sessionCapped=deriveAccount(a([w('session',40,.5),w('weekly',85,100)]),now);
+ assert.notEqual(sessionCapped.status,'expiring');
+ const capped=deriveAccount(a([w('session',9,1.1),w('weekly',27,39.5)]),now);
+ assert.equal(capped.status,'underused');
+ assert.match(capped.reason,/^session allowance is capped at 73% by weekly until it resets, but only 22% of its window is left/);
+});
+test('a limiter that resets first leaves the expiring opportunity intact',()=>{
+ const acct=deriveAccount(a([w('session',85,.5),w('weekly',40,2)]),now);
+ assert.equal(acct.status,'expiring'); assert.equal(acct.opportunity.kind,'weekly');
+ assert.match(acct.reason,/^60% of weekly remains/);
+ const low=deriveAccount(a([w('session',93,.5),w('weekly',40,2)]),now);
+ assert.equal(low.status,'limited'); assert.equal(low.opportunity.kind,'weekly');
 });
