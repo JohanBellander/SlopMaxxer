@@ -78,6 +78,7 @@ test('fetchMuse translates server_sent_no_usage into a checkable state, not a ra
   assert.equal(result.stale, true);
   assert.match(result.error, /No usage reported yet — run Muse once to check/);
   assert.doesNotMatch(result.error, /server_sent_no_usage/);
+  assert.equal(result.noUsage, true);
 });
 
 test('fetchMuse does not call the CLI when no Meta login is stored', async (t) => {
