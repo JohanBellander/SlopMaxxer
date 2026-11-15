@@ -92,6 +92,15 @@ export function fromLastSamples(a, now, samples = loadHistory()) {
   return { ...a, windows, observedAt: last.getTime(), error: undefined, stale: true, note: `${a.error}; showing the last reading from ${at}` };
 }
 
+/** Samples for a fresh reading, stamped when it was observed; a cached reading served twice is recorded once. */
+export function newSamples(a, history, now) {
+  if (a.stale || a.error) return [];
+  const t = a.observedAt ?? now;
+  return a.windows
+    .filter((w) => !history.some((s) => s.id === a.id && s.kind === w.kind && s.t === t))
+    .map((w) => ({ t, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds }));
+}
+
 function safeDaily(a, now) {
   const t = performance.now();
   try {
@@ -150,7 +159,7 @@ export async function collect() {
   const accounts = [...byId.values()].map((a) => (a.error ? fromLastSamples(a, now) || a : a)).map((a) => {
     a.observedAt ??= a.stale || a.error ? null : now;
     a.windows = (a.windows || []).map(w => ({ ...w, observedAt: w.observedAt ?? a.observedAt }));
-    const freshSamples = a.stale || a.error ? [] : a.windows.map(w => ({ t: now, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds }));
+    const freshSamples = newSamples(a, loadHistory(), now);
     const evidence = [...loadHistory(), ...freshSamples];
     a.completedWindows = completedWindows(evidence, a.id, now);
     for (const w of a.windows) {
@@ -167,11 +176,7 @@ export async function collect() {
     };
   });
 
-  const samples = [];
-  for (const a of accounts) {
-    if (a.stale || a.error) continue;
-    for (const w of a.windows) samples.push({ t: now, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds });
-  }
+  const samples = accounts.flatMap((a) => newSamples(a, loadHistory(), now));
   if (samples.length) saveSamples(samples);
 
   const next = pickNext(accounts, now);

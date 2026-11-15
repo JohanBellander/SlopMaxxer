@@ -18,6 +18,8 @@ export async function cachedClaudeUsage({ home, key, request, now = Date.now }) 
     usage: state?.usage && now() - state.fetchedAt < MAX_AGE ? state.usage : null,
     fetchedAt: state?.fetchedAt,
     cached: true,
+    // The last live call failed; waiting on another process's lock alone is not a failure.
+    failed: !!state?.error,
     error,
     retryAt: state?.retryAt,
   });
