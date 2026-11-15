@@ -18,7 +18,7 @@ test('macOS menu bar runs the shipped JXA script against the local API', () => {
 });
 
 // The script is JXA; its popup model is plain JS, so run it here without Cocoa.
-const menubar = vm.runInNewContext(fs.readFileSync(MENUBAR_SCRIPT, 'utf8') + ';({ popupModel, COLORS })');
+const menubar = vm.runInNewContext(fs.readFileSync(MENUBAR_SCRIPT, 'utf8') + ';({ popupModel, COLORS, STALE_TITLE_MS, TITLE_REFRESH_MS })');
 const now = Date.parse('2026-11-13T12:00:00Z');
 const slop = {
   guidance: { verdict: { word: 'Speed up.', arrow: '▲', tone: 'pink', why: 'Use it before reset.' },
@@ -63,11 +63,26 @@ test('the menu bar drops an old verdict and says when the server is gone', () =>
   assert.ok(down.items.some((i) => i.text === 'SlopMaxxer is not reachable.' && i.color === 'red'));
 });
 
-test('the menu bar never polls in the background', () => {
+test('the menu bar refreshes its title only while someone can see it', () => {
   const src = fs.readFileSync(MENUBAR_SCRIPT, 'utf8');
-  // Fetches start only at launch, on popup open and on refresh; the timer only collects results.
-  assert.equal(src.match(/fetchNow\(\);/g).length, 3);
+  // Fetches start at launch, on popup open, on refresh, and from the timer for the title.
+  assert.equal(src.match(/fetchNow\(\);/g).length, 4);
   assert.match(src, /'tick:'[\s\S]*?fetchDone\(\)/);
+  assert.match(src, /age >= TITLE_REFRESH_MS && !asleep && !locked\) fetchNow\(\)/);
+  assert.ok(menubar.TITLE_REFRESH_MS < menubar.STALE_TITLE_MS, 'the title is refreshed before it goes stale');
+  // Starts from the real lock/display state, then follows the notifications.
+  assert.match(src, /let asleep = \$\.CGDisplayIsAsleep\(/);
+  assert.match(src, /objectForKey\('CGSSessionScreenIsLocked'\)/);
+  for (const [center, selector, name] of [
+    ['workspace', 'screensSlept:', 'NSWorkspaceScreensDidSleepNotification'],
+    ['workspace', 'screensWoke:', 'NSWorkspaceScreensDidWakeNotification'],
+    ['distributed', 'screenLocked:', 'com.apple.screenIsLocked'],
+    ['distributed', 'screenUnlocked:', 'com.apple.screenIsUnlocked'],
+  ]) assert.ok(src.includes(`${center}.addObserverSelectorNameObject(target, '${selector}', '${name}', $());`), name);
+  assert.match(src, /'screensSlept:'[^\n]*asleep = true/);
+  assert.match(src, /'screensWoke:'[^\n]*asleep = false/);
+  assert.match(src, /'screenLocked:'[^\n]*locked = true/);
+  assert.match(src, /'screenUnlocked:'[^\n]*locked = false/);
 });
 
 test('tray command runs the shipped PowerShell script against the local API', () => {
