@@ -6,6 +6,7 @@ import path from 'node:path';
 import { SLOP_HOME, defaultMuseDir } from './discover.mjs';
 import { derive } from '../public/slop.js';
 import { log } from './log.mjs';
+import { dayIndex } from './backfill.mjs';
 
 const EVENTS_FILE = path.join(SLOP_HOME, 'events.jsonl');
 const STATE_FILE = path.join(SLOP_HOME, 'state.json');
@@ -27,19 +28,12 @@ function toWindow(w, observedAt) {
 
 /** % of the weekly cap used on each of the last 7 local days (oldest first), from weekly samples. */
 export function dailyFromSamples(samples, now = Date.now()) {
-  // Local midnights by calendar, not 24h steps: a DST day is 23 or 25 hours long.
-  const bounds = [];
-  for (let i = 0; i < 8; i++) {
-    const b = new Date(now);
-    b.setDate(b.getDate() - 6 + i);
-    bounds.push(b.setHours(0, 0, 0, 0));
-  }
   const days = Array(7).fill(0);
   for (let i = 1; i < samples.length; i++) {
     const [t, used] = samples[i];
     const prev = samples[i - 1][1];
     const gain = used >= prev ? used - prev : used; // a drop means the week reset
-    const d = bounds.findLastIndex((b) => t >= b);
+    const d = dayIndex(t, now);
     if (d >= 0 && d < 7) days[d] += gain;
   }
   return days.map((v) => Math.round(v * 10) / 10);

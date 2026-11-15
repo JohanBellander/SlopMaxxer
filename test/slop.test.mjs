@@ -62,23 +62,33 @@ test('daily usage counts gains per day and treats a drop as a reset', () => {
   assert.equal(days[6], 76 + 5 + 3); // today: 14 → 90, reset → 5, 5 → 8
 });
 
-test('daily usage follows local calendar days across a DST change', (t) => {
+test('daily usage follows local calendar days across DST changes', (t) => {
   // TZ must be set before the process computes any dates, so run the check in a child process.
+  const src = (f) => JSON.stringify(new URL(`../src/${f}`, import.meta.url).href);
   const code = `
     const stockholm = new Date('2026-01-15T12:00:00Z').getTimezoneOffset() === -60 &&
       new Date('2026-07-15T12:00:00Z').getTimezoneOffset() === -120;
     if (!stockholm) { console.log('null'); process.exit(0); }
-    const { dailyFromSamples } = await import(${JSON.stringify(new URL('../src/snapshot.mjs', import.meta.url).href)});
-    // 2026-10-25 is the fall-back day; 00:30 local that day is 22:30Z the day before.
-    const samples = [[Date.parse('2026-10-24T20:00:00Z'), 0], [Date.parse('2026-10-24T21:30:00Z'), 1],
-      [Date.parse('2026-10-24T22:30:00Z'), 3]];
-    console.log(JSON.stringify(dailyFromSamples(samples, Date.parse('2026-10-26T11:00:00Z'))));`;
+    const { dailyFromSamples } = await import(${src('snapshot.mjs')});
+    const { dailyFromReadings } = await import(${src('backfill.mjs')});
+    // Three readings 0 → 1 → 3: the last two sit 23:30 and 00:30 local around a DST midnight.
+    const run = (times, now) => {
+      const ts = times.map(Date.parse), at = Date.parse(now);
+      return [dailyFromSamples(ts.map((x, i) => [x, [0, 1, 3][i]]), at),
+        dailyFromReadings(ts.map((x, i) => ({ t: x, used: [0, 1, 3][i], resetsAt: at + 864e5 })), at)];
+    };
+    console.log(JSON.stringify({
+      fallBack: run(['2026-10-24T20:00:00Z', '2026-10-24T21:30:00Z', '2026-10-24T22:30:00Z'], '2026-10-26T11:00:00Z'),
+      springForward: run(['2026-03-28T20:00:00Z', '2026-03-28T22:30:00Z', '2026-03-28T23:30:00Z'], '2026-03-30T11:00:00Z'),
+    }));`;
   const out = execFileSync(process.execPath, ['--input-type=module', '-e', code],
     { env: { ...process.env, TZ: 'Europe/Stockholm' }, encoding: 'utf8' });
-  const days = JSON.parse(out);
-  if (!days) return t.skip('this Node build ignores TZ=Europe/Stockholm (common on Windows)');
-  assert.equal(days[4], 1); // Oct 24: 23:30 local
-  assert.equal(days[5], 2); // Oct 25: 00:30 local, its own day
+  const res = JSON.parse(out);
+  if (!res) return t.skip('this Node build ignores TZ=Europe/Stockholm (common on Windows)');
+  // 2026-10-25 and 2026-03-29 are the DST days (idx 5); the day before is idx 4.
+  for (const [name, results] of Object.entries(res)) {
+    for (const days of results) assert.deepEqual(days, [0, 0, 0, 0, 1, 2, 0], name);
+  }
 });
 
 test('events describe observed capacity changes without fabricated HTTP errors or ranks', () => {
