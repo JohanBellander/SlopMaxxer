@@ -95,6 +95,15 @@ const c = process.stdout.isTTY && !process.env.NO_COLOR
   ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, yel: (s) => `\x1b[33m${s}\x1b[0m`, grn: (s) => `\x1b[32m${s}\x1b[0m`, mag: (s) => `\x1b[35m${s}\x1b[0m` }
   : Object.fromEntries(['dim', 'bold', 'red', 'yel', 'grn', 'mag'].map((k) => [k, (s) => s]));
 
+// Local clock like the dashboard (`sun 12:00`) plus a rough age; the ISO stamp stays in --json.
+const pad = (n) => String(n).padStart(2, '0');
+function readingTime(iso, now = Date.now()) {
+  const d = new Date(iso);
+  const m = Math.max(0, Math.round((now - d) / 60000));
+  const ago = m < 1 ? 'just now' : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`;
+  return `${['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][d.getDay()]} ${pad(d.getHours())}:${pad(d.getMinutes())}, ${ago}`;
+}
+
 async function status() {
   const provider = opt('provider', 'any');
   if (!['any', 'claude', 'codex', 'muse'].includes(provider)) fail('Unsupported provider filter.');
@@ -106,12 +115,16 @@ async function status() {
   for (const a of vm.sorted) {
     console.log(c.bold(`\n${a.label ? `${a.slug} ${a.label}` : a.slug} · ${a.action}${vm.next?.id === a.id ? ' ← next task' : ''}`));
     console.log(`  ${a.reason}`);
-    for (const w of a.windows) {
+    // One forecast line per account when every window would print the same one.
+    const forecasts = a.windows.map(forecastSummary);
+    const shared = forecasts.length > 1 && forecasts.every((f) => f === forecasts[0]);
+    a.windows.forEach((w, i) => {
       console.log(`  ${w.label}: ${windowSummary(w)}`);
-      console.log(c.dim(`    ${forecastSummary(w)}`));
+      if (!shared) console.log(c.dim(`    ${forecasts[i]}`));
       if (w.outlook?.confidence === 'limited' && w.fresh && !w.expired) console.log(c.dim(`    Weekly demand estimate: ${w.outlook.low}–${w.outlook.high}% at reset, based on ${w.outlook.days} well-observed days. Limited confidence.`));
-    }
-    if (a.observedAt) console.log(c.dim(`  Last reading: ${a.observedAt}`));
+    });
+    if (shared) console.log(c.dim(`  ${forecasts[0]}`));
+    if (a.observedAt) console.log(c.dim(`  Last reading: ${readingTime(a.observedAt)}`));
     for (const r of (a.completedWindows || []).slice(0, 3)) console.log(`  Completed ${r.kind}: at least ${r.usedAtLeast}% used; at most ${r.unusedAtMost}% unused (last reading ${r.gapMinutes}m before reset).`);
     if (a.resetCredits != null) console.log(`  Reset credits: ${a.resetCredits}. Not assumed redeemed.`);
     if (a.extraUsage) console.log('  Extra paid usage is separate from included allowance.');
