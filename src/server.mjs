@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collect } from './collect.mjs';
+import { collect, warmHistory } from './collect.mjs';
 import { loadConfig } from './discover.mjs';
 import { demoSnapshot } from './demo.mjs';
 import { shiftedMock } from './mock.mjs';
@@ -17,7 +17,7 @@ const CLIENT_LOG_MAX = 8 * 1024;
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' };
 
-export function startServer({ port = 4747, demo = false, fallbackPort = false, onReady, onError } = {}) {
+export function startServer({ port = 4747, demo = false, fallbackPort = false, warm = true, onReady, onError } = {}) {
   const config = loadConfig();
   const pollMs = Math.max(60_000, (config.pollSeconds || 120) * 1000);
   let snapshot = null; // classic shape: /api/snapshot (classic.html, CLI)
@@ -175,6 +175,8 @@ export function startServer({ port = 4747, demo = false, fallbackPort = false, o
   server.once('listening', () => {
     log.info('server.listening', { port: server.address().port, demo, pollMs });
     onReady?.(`http://127.0.0.1:${server.address().port}`);
+    // Disk-only warm-up so the first click doesn't wait several seconds for transcript parsing.
+    if (!demo && warm) setTimeout(() => { try { warmHistory(); } catch (e) { log.warn('backfill.warm_failed', { error: e }); } }, 0);
   });
   server.listen(port, '127.0.0.1');
   return server;

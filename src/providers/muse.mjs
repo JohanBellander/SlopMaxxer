@@ -41,16 +41,40 @@ function parseUsage(stdout) {
   throw new Error('muse usage printed no JSON');
 }
 
+const MUSE_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+-R[0-9]+(\.[0-9]+)?$/;
+
+// On Windows `muse` is a .cmd that starts Windows PowerShell to run Meta's launcher script,
+// which then runs the real binary: 4-6 s of startup on every poll. The launcher picks the
+// binary named by .muse-version next to it; run that one directly. Its layout is Meta's
+// private detail, so anything unexpected returns null and the caller uses `muse` itself.
+export function museBinary(pathVar = process.env.PATH || '') {
+  for (const dir of pathVar.split(path.delimiter)) {
+    if (!dir || !fs.existsSync(path.join(dir, 'muse.cmd'))) continue;
+    try {
+      const version = fs.readFileSync(path.join(dir, '.muse-version'), 'utf8').trim();
+      const bin = path.join(dir, `muse-bin-${version}.exe`);
+      return MUSE_VERSION.test(version) && fs.existsSync(bin) ? bin : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 // muse keeps its login under $XDG_CONFIG_HOME/muse (default ~/.config/muse), so point the CLI
-// at the discovered home's config root. On Windows `muse` resolves to a .cmd shim, which Node
-// can only spawn through a shell; the command is a fixed string, never user input.
+// at the discovered home's config root. Without the binary, the .cmd shim can only be spawned
+// through a shell; the command is a fixed string, never user input.
 async function runMuseUsage(dir) {
   const env = { ...process.env };
   if (dir && path.basename(dir).toLowerCase() === 'muse') env.XDG_CONFIG_HOME = path.dirname(dir);
   const opts = { env, timeout: 15000, windowsHide: true };
-  const { stdout } = process.platform === 'win32'
-    ? await execAsync('muse usage --json', opts)
-    : await execFileAsync('muse', ['usage', '--json'], opts);
+  const bin = process.platform === 'win32' ? museBinary() : null;
+  log.debug('muse_cli.run', { via: bin ? 'binary' : 'muse command', bin });
+  const { stdout } = bin
+    ? await execFileAsync(bin, ['usage', '--json'], opts)
+    : process.platform === 'win32'
+      ? await execAsync('muse usage --json', opts)
+      : await execFileAsync('muse', ['usage', '--json'], opts);
   return stdout;
 }
 

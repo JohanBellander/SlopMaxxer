@@ -155,7 +155,8 @@ function Build-Popup {
   $script:verdictPanel = $null; $script:nodPx = 0
   $y = 8
   $null = Add-Label '> slopmaxxer' $script:fontTitle $script:cAccent 12 $y 200
-  $stamp = if ($script:lastFetch -ne [DateTime]::MinValue) { $script:lastFetch.ToString('HH:mm:ss') } else { '' }
+  $stamp = if ($script:fetchTask) { 'refreshing...' }
+           elseif ($script:lastFetch -ne [DateTime]::MinValue) { $script:lastFetch.ToString('HH:mm:ss') } else { '' }
   $t = Add-Label $stamp $script:fontSmall $script:cMuted 290 $y 96
   $t.TextAlign = 'MiddleRight'
   $y += 24
@@ -200,7 +201,9 @@ function Build-Popup {
 
   $accounts = @()
   if ($script:lastData -and $script:lastData.accounts) { $accounts = @($script:lastData.accounts) }
-  if (-not $script:lastData) {
+  if (-not $script:lastData -and $script:fetchTask) {
+    $null = Add-Label 'Reading your accounts...' $script:fontBody $script:cMuted 12 $y 330; $y += 18
+  } elseif (-not $script:lastData) {
     $null = Add-Label 'SlopMaxxer is not reachable.' $script:fontBody $script:cRed 12 $y 330; $y += 18
   } elseif ($accounts.Count -eq 0) {
     $null = Add-Label 'No logins found yet.' $script:fontBody $script:cMuted 12 $y 330; $y += 18
@@ -280,12 +283,39 @@ function Update-Tooltip {
   try { $script:notifyIcon.Text = $text } catch { }
 }
 
-function Fetch-Data {
-  try {
-    $script:lastData = Invoke-RestMethod -Uri $ApiUrl -TimeoutSec 20
-    $script:lastFetch = Get-Date
-  } catch { $script:lastData = $null }
+function Apply-Data($data) {
+  $script:lastData = $data
+  if ($data) { $script:lastFetch = Get-Date }
   Update-Tooltip
+}
+
+# Blocking fetch, only for -RenderTo snapshots. The live tray uses Start-Fetch.
+function Fetch-Data {
+  try { Apply-Data (Invoke-RestMethod -Uri $ApiUrl -TimeoutSec 20) } catch { Apply-Data $null }
+}
+
+# The server may need several seconds to poll the providers, so the live tray never
+# waits on the UI thread: Start-Fetch begins a request and the UI timer picks up the
+# answer (Complete-Fetch). The popup meanwhile shows the last figures, marked refreshing.
+Add-Type -AssemblyName System.Net.Http
+$script:http = New-Object System.Net.Http.HttpClient
+$script:http.Timeout = [TimeSpan]::FromSeconds(30)
+$script:fetchTask = $null
+
+function Start-Fetch {
+  if ($script:fetchTask) { return }
+  $script:fetchTask = $script:http.GetStringAsync($ApiUrl)
+  if ($form.Visible) { Build-Popup; Place-Popup }
+}
+
+function Complete-Fetch {
+  $task = $script:fetchTask
+  if (-not $task -or -not $task.IsCompleted) { return }
+  $script:fetchTask = $null
+  $data = $null
+  if ($task.Status -eq 'RanToCompletion') { try { $data = $task.Result | ConvertFrom-Json } catch { } }
+  Apply-Data $data
+  if ($form.Visible) { Build-Popup; Place-Popup }
 }
 
 function Show-Popup {
@@ -293,9 +323,7 @@ function Show-Popup {
   Build-Popup; Place-Popup
   if (-not $form.Visible) { $form.Show(); $form.Update() }
   Start-VerdictNod
-  if (((Get-Date) - $script:lastFetch).TotalSeconds -gt 20) {
-    Fetch-Data; Build-Popup; Place-Popup
-  }
+  if (((Get-Date) - $script:lastFetch).TotalSeconds -gt 20) { Start-Fetch }
 }
 
 if ($RenderTo) {
@@ -333,7 +361,7 @@ function Exit-Tray {
 }
 
 $itemOpen.Add_Click({ Start-Process $DashboardUrl })
-$itemRefresh.Add_Click({ Fetch-Data; Show-Popup })
+$itemRefresh.Add_Click({ Show-Popup; Start-Fetch })
 $itemQuit.Add_Click({
   if ($ParentPid -gt 0) { Stop-Process -Id $ParentPid -ErrorAction SilentlyContinue }
   Exit-Tray
@@ -364,6 +392,11 @@ $notify.Add_MouseUp({
     if ($moved -le 8 -and $heldMs -le 1000) { Toggle-Popup }
   }
 })
+# Pointing at the icon usually comes a moment before the click: start reading then, so the
+# popup can open with new figures. It only fetches; the popup still opens on click alone.
+$notify.Add_MouseMove({
+  if (-not $form.Visible -and ((Get-Date) - $script:lastFetch).TotalSeconds -gt 20) { Start-Fetch }
+})
 $notify.Add_MouseDoubleClick({
   Start-Process $DashboardUrl
   $form.Hide()
@@ -373,12 +406,13 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 300
 $timer.Add_Tick({
   if ($ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { Exit-Tray; return }
+  Complete-Fetch
   if ($form.Visible) {
     $pos = [System.Windows.Forms.Cursor]::Position
     $b = $form.Bounds; $b.Inflate(28, 28)
     if ($b.Contains($pos)) { $script:lastHover = Get-Date }
     elseif (((Get-Date) - $script:lastHover).TotalMilliseconds -gt 1400) { $form.Hide() }
-    elseif (((Get-Date) - $script:lastFetch).TotalSeconds -gt 30) { Fetch-Data; Build-Popup; Place-Popup }
+    elseif (((Get-Date) - $script:lastFetch).TotalSeconds -gt 30) { Start-Fetch }
   }
 })
 $timer.Start()
