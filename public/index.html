@@ -112,7 +112,10 @@ import * as S from './slop.js';
 
 const THEMES = ['phosphor', 'tokyo', 'gruvbox', 'paper', 'synth', 'graphite'];
 const STALE_MS = 5 * 60_000;
-const state = { open: {}, sched: false, logAll: false, theme: localStorage.getItem('slop.theme') || 'phosphor', provider: 'any', previousId: null, data: null, fetchedAt: 0, err: null, toast: '' };
+// Storage can be blocked (private mode, site data off); the theme is a convenience, never a reason to fail.
+function readTheme() { try { return localStorage.getItem('slop.theme') || 'phosphor'; } catch { return 'phosphor'; } }
+function saveTheme(t) { try { localStorage.setItem('slop.theme', t); } catch {} }
+const state = { open: {}, sched: false, logAll: false, theme: readTheme(), provider: 'any', previousId: null, data: null, fetchedAt: 0, err: null, toast: '' };
 const favicon = document.getElementById('favicon');
 let faviconSvg = null; // the SVG file, recoloured to the theme's prompt colour once loaded
 let faviconColor = '';
@@ -151,13 +154,15 @@ const runs = (rs, a) => rs.map((r) => {
 
 const logLine = (e) => { const c = LEVEL[e.level] || LEVEL.INFO; return `<div class="logline"><span class="muted">${fmt.hm(e.ts)}</span><span class="${c[0]}" style="font-weight:700">${esc(e.level)}</span><span class="${c[1]}">${esc(e.msg)}</span></div>`; };
 
-function meterBlock(label, w, a) {
-  const bar = runs(S.meterGlyphs(w, 24), a);
+// shared: a forecast line shown once for the account instead of under each window
+function meterBlock(label, w, a, shared) {
+  const bar = `<span aria-hidden="true">${runs(S.meterGlyphs(w, 24), a)}</span>`;
+  const forecast = S.forecastSummary(w);
   const outlook = w.fresh && !w.expired && w.outlook?.confidence === 'limited'
     ? `<div class="muted">Weekly demand estimate: ${w.outlook.low}–${w.outlook.high}% at reset, based on ${w.outlook.days} well-observed days. Limited confidence; this is not a reason to stop.</div>` : '';
   return `<div class="meter"><div><span class="muted">${esc(label)}</span> ${bar}</div>
     <div><b>${esc(S.windowSummary(w))}</b></div>
-    <div class="muted">${esc(S.forecastSummary(w))}</div>${outlook}</div>`;
+    ${forecast === shared ? '' : `<div class="muted">${esc(forecast)}</div>`}${outlook}</div>`;
 }
 
 // Day i of the 7-day history (0 = six days ago, 6 = today), as "sat 25".
@@ -167,9 +172,11 @@ const dayBreakdown = (a) => (a.dailyPct || []).map((v, i) => `${dayName(i)} ${a.
 function details(a) {
   const maxDay = Math.max(20, ...(a.dailyPct || [0]));
   const completed = (a.completedWindows || []).slice(0, 4);
+  const learning = S.sharedLearning(a.windows);
   return `<div class="details" id="d-${a.id}">
     <div class="advice">${esc(a.reason)}</div>
-    ${a.windows.map(w => meterBlock(w.label, w, a)).join('')}
+    ${a.windows.map(w => meterBlock(w.label, w, a, learning)).join('')}
+    ${learning ? `<div class="muted">${esc(learning)}</div>` : ''}
     <div class="stats">
       <span>Last reading: <b>${a.observedAt ? esc(fmt.dayTime(a.observedAt)) : 'unknown'}</b></span>
       ${a.resetCredits != null ? `<span>Reset credits: <b>${a.resetCredits}</b> · not assumed redeemed</span>` : ''}
@@ -205,7 +212,7 @@ function render() {
         <button class="row" type="button" data-toggle="${a.id}" aria-expanded="${open}" aria-controls="d-${a.id}">
           <span class="name"><strong style="color:${pvar(a)}">${esc(a.slug)}</strong>${a.label ? ` <span class="muted">${esc(a.label)}</span>` : ''}</span>
           <span class="chip" style="color:${tone(a.tone)};background:${tint(tone(a.tone), 15)}">${a.status === 'expiring' ? '▲▲ ' : a.status === 'underused' ? '▲ ' : ['limited', 'blocked'].includes(a.status) ? '▼ ' : ''}${a.action}</span>
-          <span class="pre">${runs(S.meterGlyphs(w, 20), a)}</span>
+          <span class="pre" aria-hidden="true">${runs(S.meterGlyphs(w, 20), a)}</span>
           <span class="pred" title="${esc(w.label || 'Applicable limits')}">${a.headroom != null ? `<b>${Math.round(a.headroom)}%</b> left` : 'unknown'}</span>
           <span class="chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
         </button>${open ? details(a) : ''}
@@ -333,7 +340,7 @@ document.addEventListener('click', async (e) => {
 });
 document.addEventListener('change', (e) => {
   if (e.target.id === 'provider') { state[e.target.id] = e.target.value; state.previousId = null; render(); }
-  if (e.target.id === 'theme') { state.theme = e.target.value; localStorage.setItem('slop.theme', state.theme); render(); }
+  if (e.target.id === 'theme') { state.theme = e.target.value; saveTheme(state.theme); render(); }
 });
 
 load();

@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { derive, meterGlyphs, brailleSpark, timelineGlyphs } from '../public/slop.js';
+import { derive, meterGlyphs, brailleSpark, timelineGlyphs, forecastSummary, sharedLearning } from '../public/slop.js';
 import { MOCK, shiftedMock } from '../src/mock.mjs';
 import { toSlopAccount, dailyFromSamples, diffEvents } from '../src/snapshot.mjs';
 
@@ -109,4 +110,25 @@ test('team seats are named as team plans, not as personal Max/Pro plans', async 
   assert.deepEqual(claudePlan({ subscriptionType: 'max', rateLimitTier: 'default_claude_max_20x' }), { plan: 'Max 20x', planSlug: 'max-20x' });
   assert.deepEqual(codexPlan('self_serve_business_prolite'), { plan: 'Business · Pro Lite seat', planSlug: 'business' });
   assert.deepEqual(codexPlan('pro'), { plan: 'Pro', planSlug: 'pro' });
+});
+
+test('dashboard hides meter glyphs from screen readers and survives blocked storage', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const meters = html.match(/[^\n]*S\.meterGlyphs\([^\n]*/g);
+  assert.equal(meters.length, 2);
+  for (const line of meters) assert.match(line, /aria-hidden="true">\$\{runs\(S\.meterGlyphs/);
+  // every storage call sits inside a try block
+  for (const line of html.split('\n').filter(l => l.includes('localStorage.'))) assert.match(line, /try \{[^}]*localStorage\./);
+});
+
+test('the learning forecast is shown once per account only when every window would repeat it', () => {
+  const learning = { fresh: true, known: true };
+  const observed = { fresh: true, known: true, forecast: 'observed' };
+  assert.match(forecastSummary(learning), /^Learning your usage/);
+  assert.equal(sharedLearning([learning, learning]), forecastSummary(learning));
+  assert.equal(sharedLearning([learning]), null);
+  assert.equal(sharedLearning([learning, observed]), null);
+  assert.equal(sharedLearning([]), null);
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /S\.sharedLearning\(a\.windows\)/);
 });
