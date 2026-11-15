@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { derive, deriveAccount, forecastSummary } from '../public/guidance.js';
+import { clock, derive, deriveAccount, forecastSummary } from '../public/guidance.js';
 import { stateOf, toSlopAccount } from '../src/snapshot.mjs';
 import { recentRate, completedWindows, weeklyOutlook } from '../src/history.mjs';
 const now = Date.parse('2026-10-31T12:00:00Z'), H=3600000;
@@ -52,7 +52,27 @@ test('recovery waits for every blocking limit, then selects earliest recoverable
  const both=a([w('session',100,1),w('weekly',100,72)]);
  assert.equal(vm([both]).accounts[0].recoveryAt,new Date(now+72*H).toISOString());
  const other=a([w('session',100,2),w('weekly',10,100)],{id:'b'});
- assert.match(vm([both,other]).verdict.why,/2026-10-31T14:00/);
+ assert.ok(vm([both,other]).verdict.why.includes(`Earliest known availability: after ${clock(now+2*H,now)}.`));
+});
+test('recovery times read as a local clock time, with the weekday once it is not today',()=>{
+ const pad=n=>String(n).padStart(2,'0'), at=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes());};
+ assert.equal(clock(now+H,now+H),at(now+H));
+ const later=new Date(now+72*H);
+ assert.equal(clock(later,now),['sun','mon','tue','wed','thu','fri','sat'][later.getDay()]+' '+at(later));
+ const blocked=vm([a([w('session',10,4),w('weekly',100,72)])]);
+ assert.ok(blocked.accounts[0].reason.includes(`Expected availability after ${clock(now+72*H,now)} (confirm after reset).`));
+ assert.ok(blocked.verdict.why.includes(`Earliest known availability: after ${clock(now+72*H,now)}.`));
+ assert.doesNotMatch(JSON.stringify([blocked.accounts[0].reason,blocked.verdict.why]),/\d{4}-\d\d-\d\dT/);
+ const used=a([w('weekly',100,72)],{id:'codex',provider:'codex',planSlug:'business'});
+ const stale=a([w('weekly',38,100,{observedAt:now-30*60000})],{id:'claude',stale:true});
+ assert.ok(vm([used,stale]).verdict.why.includes(`codex/business used up until ${clock(now+72*H,now)}.`));
+});
+test('calendar-pace nudge needs a known window length',()=>{
+ assert.equal(vm([a([w('session',10,1.5)])]).accounts[0].status,'underused');
+ assert.equal(vm([a([w('session',10,1.5,{durationMin:null})])]).accounts[0].status,'available');
+ const muse=toSlopAccount({id:'m',provider:'muse',observedAt:now,windows:[{kind:'session',label:'Window',usedPercent:10,resetsAt:now+1.5*H,windowSeconds:null}]},now);
+ assert.equal(muse.windows[0].durationMin,null);
+ assert.notEqual(vm([muse]).accounts[0].status,'underused');
 });
 test('unknown recovery is never invented and no NaN is scored',()=>{
  const result=vm([a([w('weekly',100,2,{resetsAt:null})])]);
@@ -223,14 +243,14 @@ test('weekly pace warning projects an early run-out without disqualifying the ac
  assert.equal(vm([a([w('weekly',40,100)])]).accounts[0].paceWarning,null);
  assert.equal(vm([a([w('weekly',40,144)])]).accounts[0].paceWarning,null);
 });
-test('login token expiry warns a day ahead and stays quiet beyond that',()=>{
+test('login token warns only once it has expired',()=>{
  const soon=vm([a([w('weekly',40,100)],{tokenExpiresAt:now+3*H})]).accounts[0];
- assert.match(soon.tokenWarning,/token expires in 3h/); assert.match(soon.reason,/token expires in 3h/);
+ assert.equal(soon.tokenWarning,null); assert.doesNotMatch(soon.reason,/token/i);
  assert.equal(soon.status,'available');
  const later=vm([a([w('weekly',20,100)],{tokenExpiresAt:now+72*H})]).accounts[0];
  assert.equal(later.tokenWarning,null);
  const gone=vm([a([w('weekly',20,100)],{stale:true,tokenExpiresAt:now-H})]).accounts[0];
- assert.match(gone.tokenWarning,/token has expired/);
+ assert.match(gone.tokenWarning,/token has expired/); assert.match(gone.reason,/token has expired/);
 });
 test('adapter carries login token expiry into the snapshot as ISO',()=>{
  const normalized=toSlopAccount({id:'a',provider:'claude',observedAt:now,tokenExpiresAt:now+H,windows:[]},now);
