@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fromLastSamples } from '../src/collect.mjs';
+import { fromLastSamples, newSamples } from '../src/collect.mjs';
 
 const H = 3_600_000;
 const now = Date.parse('2026-11-14T07:30:00Z');
@@ -26,4 +26,20 @@ test('Muse sending no usage keeps the last weekly reading until its reset and st
   assert.equal(a.stale, true);
   assert.equal(a.error, undefined);
   assert.match(a.note, /showing the last reading from \w{3} \w{3} \d+ \d\d:\d\d/);
+});
+
+test('a cached reading served on two polls is recorded once, at the time it was observed', () => {
+  const a = { id: 'c', observedAt: now - 3 * 60_000, windows: [{ kind: 'session', usedPercent: 9 }, { kind: 'weekly', usedPercent: 27 }] };
+  const first = newSamples(a, [], now);
+  assert.deepEqual(first.map((s) => [s.kind, s.t]), [['session', a.observedAt], ['weekly', a.observedAt]]);
+  assert.deepEqual(newSamples(a, first, now + 120_000), []);
+  assert.deepEqual(newSamples({ ...a, stale: true }, [], now), []);
+  assert.equal(newSamples({ ...a, observedAt: undefined }, first, now)[0].t, now);
+});
+
+test('a live reading stamped after the poll started still counts in that poll', () => {
+  const pollStart = now - 2000;
+  const a = { id: 'c', observedAt: now + 500, windows: [{ kind: 'session', usedPercent: 9 }] };
+  assert.equal(newSamples(a, [], pollStart)[0].t, pollStart);
+  assert.equal(newSamples(a, [], now + 1000)[0].t, now + 500);
 });
