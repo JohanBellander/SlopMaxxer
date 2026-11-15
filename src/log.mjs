@@ -45,6 +45,7 @@ export function redact(value, depth = 0) {
 }
 
 let prunedFor = null;
+let tightened = null;
 function prune(today) {
   if (prunedFor === today) return;
   prunedFor = today;
@@ -73,6 +74,7 @@ function write(level, ev, fields) {
     const core = { t: d.toISOString(), lvl: level, ev, pid: process.pid };
     const line = JSON.stringify({ ...core, ...redact(fields || {}), ...core });
     fs.appendFileSync(logFile(d), line + '\n', { mode: 0o600 });
+    if (tightened !== logFile(d)) { tightened = logFile(d); fs.chmodSync(tightened, 0o600); } // files from older versions too
   } catch { /* logging must never break the tool */ }
 }
 
