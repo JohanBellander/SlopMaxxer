@@ -26,9 +26,23 @@ function readHistoryFile() {
       if (line) try { samples.push(JSON.parse(line)); } catch { unparsable++; }
     }
   } catch (e) {
-    if (e.code !== 'ENOENT') log.warn('history.read_failed', { error: e });
+    if (e.code !== 'ENOENT') { log.warn('history.read_failed', { error: e }); return { samples, unparsable, failed: true }; }
   }
   return { samples, unparsable };
+}
+
+/** Takes the cross-process history lock, waiting up to 2s; a lock older than 30s is a crashed save's. */
+function lockHistory() {
+  const lock = HISTORY_FILE + '.lock';
+  const until = Date.now() + 2000;
+  for (;;) {
+    try { return fs.openSync(lock, 'wx'); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    try {
+      if (Date.now() - fs.statSync(lock).mtimeMs > 30_000) { log.warn('history.lock_abandoned'); fs.unlinkSync(lock); continue; }
+    } catch {}
+    if (Date.now() > until) return null;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  }
 }
 
 function loadHistory() {
@@ -43,20 +57,34 @@ function loadHistory() {
  * Adds samples and rewrites the file. Another process (a `status` run while the server is up) may
  * have saved samples since we loaded, so on-disk lines we don't hold are merged in rather than lost.
  * Written to a temp file and renamed into place, so a crash mid-write can't truncate the history.
+ * The read-merge-rename runs under a lock file; if it can't be had (or the file can't be read) the
+ * save is skipped and the samples stay in memory for the next one.
  */
 export function saveSamples(samples) {
   const h = loadHistory();
   h.push(...samples);
-  const key = (s) => `${s.t}|${s.id}|${s.kind}`;
-  const held = new Set(h.map(key));
-  const theirs = readHistoryFile().samples.filter((s) => !held.has(key(s)));
-  const cutoff = Date.now() - HISTORY_KEEP_MS;
-  history = [...h, ...theirs].filter((s) => s.t >= cutoff).sort((a, b) => a.t - b.t);
   fs.mkdirSync(SLOP_HOME, { recursive: true });
+  const lock = lockHistory();
+  if (lock === null) { log.warn('history.save_skipped', { reason: 'locked', pending: samples.length }); return; }
   const temp = HISTORY_FILE + `.${process.pid}.tmp`;
-  fs.writeFileSync(temp, history.map((s) => JSON.stringify(s)).join('\n') + '\n');
-  fs.renameSync(temp, HISTORY_FILE);
-  log.debug('history.saved', { added: samples.length, merged: theirs.length, kept: history.length, dropped: h.length + theirs.length - history.length });
+  let renamed = false;
+  try {
+    const disk = readHistoryFile();
+    if (disk.failed) { log.warn('history.save_skipped', { reason: 'unreadable', pending: samples.length }); return; }
+    const key = (s) => `${s.t}|${s.id}|${s.kind}`;
+    const held = new Set(h.map(key));
+    const theirs = disk.samples.filter((s) => !held.has(key(s)));
+    const cutoff = Date.now() - HISTORY_KEEP_MS;
+    history = [...h, ...theirs].filter((s) => s.t >= cutoff).sort((a, b) => a.t - b.t);
+    fs.writeFileSync(temp, history.map((s) => JSON.stringify(s)).join('\n') + '\n');
+    fs.renameSync(temp, HISTORY_FILE);
+    renamed = true;
+    log.debug('history.saved', { added: samples.length, merged: theirs.length, kept: history.length, dropped: h.length + theirs.length - history.length });
+  } finally {
+    if (!renamed) try { fs.unlinkSync(temp); } catch {}
+    fs.closeSync(lock);
+    try { fs.unlinkSync(HISTORY_FILE + '.lock'); } catch {}
+  }
 }
 
 /** Our own weekly readings for an account, for the 7-day history. */
