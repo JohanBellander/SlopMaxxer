@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import http from 'node:http';
 import { once } from 'node:events';
 import { startServer } from '../src/server.mjs';
 import { derive } from '../public/guidance.js';
+import { demoSnapshot } from '../src/demo.mjs';
 
 test('occupied default port falls back and reports the actual working URL', async (t) => {
   const occupied = net.createServer();
@@ -58,4 +60,46 @@ test('/api/slop carries the dashboard verdict for clients that cannot run guidan
   assert.deepEqual(body.guidance.next, {
     id: vm.next.id, provider: vm.next.provider, slug: vm.next.slug, label: vm.next.label, status: vm.next.status,
   });
+});
+
+const listen = (t, opts) => new Promise((resolve, reject) => {
+  const server = startServer({ port: 0, onError: reject, ...opts, onReady: () => resolve(server.address().port) });
+  t.after(() => new Promise(done => server.close(done)));
+});
+// http.request, not fetch: fetch normalises "//" and won't let us forge the Host header.
+const get = (port, path, headers = {}) => new Promise((resolve, reject) => {
+  http.get({ host: '127.0.0.1', port, path, headers }, (res) => {
+    res.resume();
+    res.on('end', () => resolve(res.statusCode));
+  }).on('error', reject);
+});
+
+test('an unparseable path answers 400 and the server keeps running', async (t) => {
+  const port = await listen(t, { demo: true });
+  assert.equal(await get(port, '//'), 400);
+  assert.equal(await get(port, '/api/slop'), 200);
+});
+
+test('only 127.0.0.1 and localhost Host headers are served (DNS rebinding)', async (t) => {
+  const port = await listen(t, { demo: true });
+  assert.equal(await get(port, '/api/slop', { host: `evil.example:${port}` }), 421);
+  assert.equal(await get(port, '/', { host: `evil.example:${port}` }), 421);
+  assert.equal(await get(port, '/api/slop', { host: `LOCALHOST.:${port}` }), 200);
+  assert.equal(await get(port, '/api/slop', { host: 'localhost' }), 200);
+});
+
+test('?refresh only forces a poll with the header, and never twice within 30 s', async (t) => {
+  let polls = 0;
+  const port = await listen(t, { collector: async () => (polls++, demoSnapshot()) });
+  assert.equal(await get(port, '/api/slop'), 200);
+  assert.equal(polls, 1);
+  const forced = { 'x-slopmaxxer-refresh': '1' };
+  // A cross-site <img src=...?refresh> can't add the header: served from the last reading.
+  t.mock.method(Date, 'now', () => performance.timeOrigin + performance.now() + 31_000);
+  assert.equal(await get(port, '/api/slop?refresh'), 200);
+  assert.equal(polls, 1);
+  assert.equal(await get(port, '/api/slop?refresh', forced), 200);
+  assert.equal(polls, 2);
+  assert.equal(await get(port, '/api/slop?refresh', forced), 200);
+  assert.equal(polls, 2);
 });
