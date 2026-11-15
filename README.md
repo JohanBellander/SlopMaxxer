@@ -267,7 +267,8 @@ See [the decision model](public/guidance.js) and [scenario tests](test/guidance.
 ```
 
 Nicknames become the row labels (`claude/team-5x work`). State lives in `~/.slopmaxxer/`:
-`history.jsonl` (35 days of percentage readings), `events.jsonl` (the log), `state.json`.
+`history/YYYY-MM-DD.jsonl` (35 days of percentage readings, one append-only file per UTC day; an older
+`history.jsonl` is still read until it ages out), `events.jsonl` (the log), `state.json`.
 
 A diagnostic log goes to `~/.slopmaxxer/logs/YYYY-MM-DD.jsonl` (14 days kept): every poll, provider
 call, HTTP status, fallback and dashboard error, one JSON object per line. It stays on your machine,

@@ -33,112 +33,85 @@ test('Muse sending no usage keeps the last weekly reading until its reset and st
 });
 
 // History saves run in child processes with their own SLOPMAXXER_HOME, never the real one.
+// Inside a child, load('x') imports a separate copy of collect.mjs, i.e. a separate "process" state.
+const DAY = 86_400_000;
 const T = Date.now();
-const sample = (used, id = 'a') => ({ t: T - 10 + used, id, kind: 'weekly', used });
+const day = (t) => new Date(t).toISOString().slice(0, 10);
+const sample = (used, id = 'a', t = T - 1000 + used) => ({ t, id, kind: 'weekly', used });
 const line = (s) => JSON.stringify(s) + '\n';
-const saveScript = (...batches) => `
-  import fs from 'node:fs';
-  import { saveSamples } from ${JSON.stringify(new URL('../src/collect.mjs', import.meta.url).href)};
-  ${batches.map((b) => (typeof b === 'string' ? b : `saveSamples(${JSON.stringify(b)});`)).join('\n')}`;
-const childArgs = (home, script) => [process.execPath, ['--input-type=module', '-e', script],
-  { env: { ...process.env, SLOPMAXXER_HOME: home, SLOPMAXXER_LOG: 'off' }, encoding: 'utf8' }];
-const used = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l).used);
+const script = (body) => `
+  const load = (tag) => import(${JSON.stringify(new URL('../src/collect.mjs', import.meta.url).href)} + '?' + tag);
+  ${body}`;
+const childArgs = (home, body, env = {}) => [process.execPath, ['--input-type=module', '-e', script(body)],
+  { env: { ...process.env, SLOPMAXXER_HOME: home, SLOPMAXXER_LOG: 'off', ...env }, encoding: 'utf8' }];
+function run(home, body, env) {
+  const r = spawnSync(...childArgs(home, body, env));
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout;
+}
+const loaded = (home) => JSON.parse(run(home, `console.log(JSON.stringify((await load('read')).loadHistory()))`));
+const save = (list, tag = 'w') => `(await load(${JSON.stringify(tag)})).saveSamples(${JSON.stringify(list)});`;
 
 function withHome(fn) {
   return async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-history-'));
-    try { await fn(home, path.join(home, 'history.jsonl')); } finally { fs.rmSync(home, { recursive: true, force: true }); }
+    try { await fn(home, path.join(home, 'history')); } finally { fs.rmSync(home, { recursive: true, force: true }); }
   };
 }
 
-test('saving history keeps samples another process wrote and leaves no temp file', withHome((home, file) => {
-  fs.writeFileSync(file, line(sample(1)));
-  // The server loads the file on its first save, then a `status` run appends a sample it never saw.
-  const script = saveScript([sample(2)], `fs.appendFileSync(${JSON.stringify(file)}, ${JSON.stringify(line(sample(3, 'b')))});`, [sample(4)]);
-  const r = spawnSync(...childArgs(home, script));
-  assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(used(file), [1, 2, 3, 4]);
-  assert.deepEqual(fs.readdirSync(home), ['history.jsonl']);
+test('concurrent saves from two processes both survive, appended to day files only', withHome(async (home) => {
+  const saver = (id) => new Promise((resolve) => {
+    const body = `const m = await load('s'); for (let i = 0; i < 200; i++) m.saveSamples([{ t: ${T - 1000} + i, id: '${id}', kind: 'weekly', used: i }]);`;
+    spawn(...childArgs(home, body)).on('exit', resolve);
+  });
+  assert.deepEqual(await Promise.all([saver('a'), saver('b')]), [0, 0]);
+  const h = loaded(home);
+  assert.equal(h.filter((s) => s.id === 'a').length, 200);
+  assert.equal(h.filter((s) => s.id === 'b').length, 200);
+  assert.deepEqual(fs.readdirSync(home), ['history']);
 }));
 
-test('a save waits for another process holding the history lock, then keeps its samples', withHome(async (home, file) => {
-  fs.writeFileSync(file, line(sample(1)));
-  const lock = file + '.lock';
-  fs.writeFileSync(lock, '');
-  const child = spawn(...childArgs(home, saveScript([sample(2)])));
-  const exited = new Promise((resolve) => child.on('exit', resolve));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.deepEqual(used(file), [1], 'wrote while another process held the lock');
-  // The lock holder commits its own sample, then releases.
-  fs.appendFileSync(file, line(sample(3, 'b')));
-  fs.unlinkSync(lock);
-  assert.equal(await exited, 0);
-  assert.deepEqual(used(file), [1, 2, 3]);
-  assert.deepEqual(fs.readdirSync(home), ['history.jsonl']);
+test('three savers with stale views interleave without losing a sample', withHome((home) => {
+  const out = run(home, `
+    const [a, b, c] = [await load('a'), await load('b'), await load('c')];
+    for (const m of [a, b, c]) m.loadHistory();
+    a.saveSamples([${JSON.stringify(sample(1, 'a'))}]);
+    b.saveSamples([${JSON.stringify(sample(2, 'b'))}]);
+    c.saveSamples([${JSON.stringify(sample(3, 'c'))}]);
+    b.saveSamples([${JSON.stringify(sample(4, 'b'))}, ${JSON.stringify(sample(2, 'b'))}]);
+    a.saveSamples([${JSON.stringify(sample(5, 'a'))}]);
+    console.log(JSON.stringify((await load('d')).loadHistory().map((s) => s.used)));`);
+  assert.deepEqual(JSON.parse(out), [1, 2, 3, 4, 5]);
 }));
 
-test('a save skips rather than writing without the lock, and takes over an abandoned one', withHome((home, file) => {
-  fs.writeFileSync(file, line(sample(1)));
-  const lock = file + '.lock';
-  fs.writeFileSync(lock, '');
-  assert.equal(spawnSync(...childArgs(home, saveScript([sample(2)]))).status, 0);
-  assert.deepEqual(used(file), [1]);
-  assert.deepEqual(fs.readdirSync(home).sort(), ['history.jsonl', 'history.jsonl.lock']);
-  const old = new Date(Date.now() - 60_000);
-  fs.utimesSync(lock, old, old);
-  assert.equal(spawnSync(...childArgs(home, saveScript([sample(2)]))).status, 0);
-  assert.deepEqual(used(file), [1, 2]);
-  assert.deepEqual(fs.readdirSync(home), ['history.jsonl']);
+test('pruning drops only day files that ended before the 35-day window', withHome((home, dir) => {
+  fs.mkdirSync(dir);
+  const old = sample(1, 'a', T - 36 * DAY), kept = sample(2, 'a', T - 34 * DAY);
+  fs.writeFileSync(path.join(dir, `${day(old.t)}.jsonl`), line(old));
+  fs.writeFileSync(path.join(dir, `${day(kept.t)}.jsonl`), line(kept));
+  run(home, save([sample(3)]));
+  assert.deepEqual(fs.readdirSync(dir).sort(), [`${day(kept.t)}.jsonl`, `${day(T - 997)}.jsonl`].sort());
+  assert.deepEqual(loaded(home).map((s) => s.used), [2, 3]);
 }));
 
-// The overlapping-process cases below patch the child's fs (the same module object collect.mjs uses)
-// to play the rival process at an exact point in the save.
-const paths = (file) => `const FILE = ${JSON.stringify(file)}, LOCK = FILE + '.lock';`;
-
-test('two savers reclaiming one stale lock: one wins, the other waits, both samples survive', withHome((home, file) => {
-  fs.writeFileSync(file, line(sample(1)));
-  fs.writeFileSync(file + '.lock', 'crashed');
-  const old = new Date(Date.now() - 60_000);
-  fs.utimesSync(file + '.lock', old, old);
-  // Rival B reclaims the stale lock just before A renames it (so A grabs B's fresh lock), then
-  // commits its own sample and releases while A waits.
-  const hook = `${paths(file)}
-    const { renameSync, statSync } = fs;
-    let rival = null, waits = 0, restored = null;
-    fs.renameSync = (from, to) => {
-      if (from === LOCK && rival === null) { fs.unlinkSync(LOCK); fs.writeFileSync(LOCK, rival = 'B'); }
-      return renameSync(from, to);
-    };
-    fs.statSync = (p, ...rest) => {
-      if (p === LOCK && rival === 'B' && ++waits === 3) {
-        restored = fs.readFileSync(LOCK, 'utf8');
-        fs.appendFileSync(FILE, ${JSON.stringify(line(sample(3, 'b')))});
-        fs.unlinkSync(LOCK);
-        rival = 'done';
-      }
-      return statSync(p, ...rest);
-    };
-    process.on('exit', () => console.log(restored));`;
-  const r = spawnSync(...childArgs(home, saveScript(hook, [sample(2)])));
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim(), 'B', "A must put B's fresh lock back, not keep it");
-  assert.deepEqual(used(file), [1, 2, 3]);
-  assert.deepEqual(fs.readdirSync(home), ['history.jsonl']);
+test('the legacy history.jsonl is read, deduped and kept until all of it is past the window', withHome((home, dir) => {
+  const legacy = path.join(home, 'history.jsonl');
+  const inWindow = sample(1), aged = sample(9, 'a', T - 40 * DAY);
+  fs.writeFileSync(legacy, line(aged) + line(inWindow));
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, `${day(inWindow.t)}.jsonl`), line(inWindow) + line(sample(2)));
+  assert.deepEqual(loaded(home).map((s) => s.used), [1, 2]);
+  run(home, save([sample(3)]));
+  assert.equal(fs.readFileSync(legacy, 'utf8'), line(aged) + line(inWindow), 'never rewritten or removed while in the window');
+  fs.writeFileSync(legacy, line(aged));
+  run(home, save([sample(4)]));
+  assert.equal(fs.existsSync(legacy), false);
+  assert.deepEqual(loaded(home).map((s) => s.used), [1, 2, 3, 4]);
 }));
 
-test('a holder whose lock was taken over skips its commit and leaves the successor alone', withHome((home, file) => {
-  fs.writeFileSync(file, line(sample(1)));
-  // While A has its temp file written (say, paused by laptop sleep), C takes over and commits.
-  const hook = `${paths(file)}
-    const { writeFileSync } = fs;
-    fs.writeFileSync = (p, ...rest) => {
-      const out = writeFileSync(p, ...rest);
-      if (String(p).endsWith('.tmp')) { writeFileSync(LOCK, 'C'); fs.appendFileSync(FILE, ${JSON.stringify(line(sample(3, 'c')))}); }
-      return out;
-    };`;
-  const r = spawnSync(...childArgs(home, saveScript(hook, [sample(2)])));
-  assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(used(file), [1, 3]);
-  assert.equal(fs.readFileSync(file + '.lock', 'utf8'), 'C');
-  assert.deepEqual(fs.readdirSync(home).sort(), ['history.jsonl', 'history.jsonl.lock']);
+test("a sample's day file is its UTC day, whatever the local time zone", withHome((home, dir) => {
+  const y = new Date(T - DAY);
+  const late = sample(1, 'a', Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate(), 23, 30));
+  run(home, save([late]), { TZ: 'Pacific/Kiritimati' }); // UTC+14: already the next local day
+  assert.deepEqual(fs.readdirSync(dir), [`${day(late.t)}.jsonl`]);
 }));

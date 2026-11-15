@@ -13,97 +13,89 @@ import { dailyHistory } from './backfill.mjs';
 import { log, since } from './log.mjs';
 
 const FETCHERS = { claude: fetchClaude, codex: fetchCodex, muse: fetchMuse };
-const HISTORY_FILE = path.join(SLOP_HOME, 'history.jsonl');
+const HISTORY_DIR = path.join(SLOP_HOME, 'history');
+const LEGACY_FILE = path.join(SLOP_HOME, 'history.jsonl');
 const HISTORY_KEEP_MS = 35 * 86400_000;
+const DAY_MS = 86400_000;
+const DAY_FILE = /^\d{4}-\d\d-\d\d\.jsonl$/;
 
 let history = null;
+let persisted = null; // keys of samples already on disk, so each process appends a sample once
+let legacyNewest = null; // newest t in the pre-day-files history.jsonl, if there is one
 
-function readHistoryFile() {
-  const samples = [];
+const sampleKey = (s) => `${s.t}|${s.id}|${s.kind}`;
+/** UTC day, so a sample's file is the same in every time zone. */
+export const historyDay = (t) => new Date(t).toISOString().slice(0, 10);
+const dayEnded = (file, cutoff) => Date.parse(file.slice(0, 10)) + DAY_MS <= cutoff;
+
+function dayFiles() {
+  try { return fs.readdirSync(HISTORY_DIR).filter((f) => DAY_FILE.test(f)); } catch (e) {
+    if (e.code !== 'ENOENT') log.warn('history.list_failed', { error: e });
+    return [];
+  }
+}
+
+function readLines(file, into) {
   let unparsable = 0;
   try {
-    for (const line of fs.readFileSync(HISTORY_FILE, 'utf8').split('\n')) {
-      if (line) try { samples.push(JSON.parse(line)); } catch { unparsable++; }
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+      if (line) try { into.push(JSON.parse(line)); } catch { unparsable++; }
     }
+    return { unparsable, found: true };
   } catch (e) {
-    if (e.code !== 'ENOENT') { log.warn('history.read_failed', { error: e }); return { samples, unparsable, failed: true }; }
+    if (e.code !== 'ENOENT') log.warn('history.read_failed', { error: e });
+    return { unparsable, found: false };
   }
-  return { samples, unparsable };
 }
-
-const LOCK_FILE = HISTORY_FILE + '.lock';
-const STALE_LOCK_MS = 30_000;
-const lockOwner = () => { try { return fs.readFileSync(LOCK_FILE, 'utf8'); } catch { return null; } };
-const isStale = (file) => Date.now() - fs.statSync(file).mtimeMs > STALE_LOCK_MS;
 
 /**
- * Takes the cross-process history lock, waiting up to 2s, and returns its token (null if busy).
- * A lock older than 30s is a crashed or paused save's: it's claimed by renaming it away, so only
- * one waiter can win it, and one that turns out to be fresh (taken meanwhile) is put back.
+ * History is append-only: one JSONL file per UTC day under history/, plus the legacy history.jsonl
+ * until it ages out. Several processes may append the same sample, so loading dedupes by t|id|kind.
  */
-function lockHistory() {
-  const token = crypto.randomUUID();
-  const until = Date.now() + 2000;
-  for (;;) {
-    // Any create error counts as busy: Windows reports EPERM while a delete is still pending.
-    try { fs.writeFileSync(LOCK_FILE, token, { flag: 'wx' }); return token; } catch {}
-    try {
-      if (isStale(LOCK_FILE)) {
-        const claim = `${LOCK_FILE}.stale.${token}`;
-        fs.renameSync(LOCK_FILE, claim);
-        if (isStale(claim)) log.warn('history.lock_abandoned');
-        else try { fs.linkSync(claim, LOCK_FILE); } catch {}
-        fs.unlinkSync(claim);
-        continue;
-      }
-    } catch {}
-    if (Date.now() > until) return null;
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
-  }
-}
-
-function loadHistory() {
+export function loadHistory() {
   if (history) return history;
-  const { samples, unparsable } = readHistoryFile();
-  history = samples;
-  log.info('history.loaded', { samples: history.length, unparsable });
+  const cutoff = Date.now() - HISTORY_KEEP_MS;
+  const all = [];
+  const legacy = [];
+  let { unparsable, found } = readLines(LEGACY_FILE, legacy);
+  legacyNewest = found ? Math.max(-Infinity, ...legacy.map((s) => s.t)) : null;
+  all.push(...legacy);
+  const files = dayFiles().filter((f) => !dayEnded(f, cutoff));
+  for (const f of files) unparsable += readLines(path.join(HISTORY_DIR, f), all).unparsable;
+  const byKey = new Map(all.filter((s) => s.t >= cutoff).map((s) => [sampleKey(s), s]));
+  history = [...byKey.values()].sort((a, b) => a.t - b.t);
+  persisted = new Set(byKey.keys());
+  log.info('history.loaded', { samples: history.length, unparsable, dayFiles: files.length, legacy: found });
   return history;
 }
 
+/** Drops whole days past the cutoff, and the legacy file once none of it is left in the window. */
+function pruneHistory(cutoff) {
+  for (const f of dayFiles()) if (dayEnded(f, cutoff)) try { fs.unlinkSync(path.join(HISTORY_DIR, f)); } catch {}
+  if (legacyNewest !== null && legacyNewest < cutoff) {
+    try { fs.unlinkSync(LEGACY_FILE); log.info('history.legacy_removed'); } catch {}
+    legacyNewest = null;
+  }
+}
+
 /**
- * Adds samples and rewrites the file. Another process (a `status` run while the server is up) may
- * have saved samples since we loaded, so on-disk lines we don't hold are merged in rather than lost.
- * Written to a temp file and renamed into place, so a crash mid-write can't truncate the history.
- * The read-merge-rename runs under a lock file. If the lock can't be had, is lost before the rename,
- * or the file can't be read, the save is skipped: the server keeps the samples in memory for its
- * next save, a one-shot `status` run loses that reading.
+ * Appends the samples this process hasn't written yet to their day files. Appends never overwrite
+ * another process's samples (a `status` run while the server is up), and a crash can at worst
+ * leave one torn line, which loading skips.
  */
 export function saveSamples(samples) {
   const h = loadHistory();
-  h.push(...samples);
-  fs.mkdirSync(SLOP_HOME, { recursive: true });
-  const token = lockHistory();
-  if (token === null) { log.warn('history.save_skipped', { reason: 'locked', pending: samples.length }); return; }
-  const temp = HISTORY_FILE + `.${process.pid}.tmp`;
-  let renamed = false;
-  try {
-    const disk = readHistoryFile();
-    if (disk.failed) { log.warn('history.save_skipped', { reason: 'unreadable', pending: samples.length }); return; }
-    const key = (s) => `${s.t}|${s.id}|${s.kind}`;
-    const held = new Set(h.map(key));
-    const theirs = disk.samples.filter((s) => !held.has(key(s)));
-    const cutoff = Date.now() - HISTORY_KEEP_MS;
-    history = [...h, ...theirs].filter((s) => s.t >= cutoff).sort((a, b) => a.t - b.t);
-    fs.writeFileSync(temp, history.map((s) => JSON.stringify(s)).join('\n') + '\n');
-    // Paused past the stale limit (e.g. laptop sleep) and taken over: don't overwrite the successor.
-    if (lockOwner() !== token) { log.warn('history.save_skipped', { reason: 'lock_lost', pending: samples.length }); return; }
-    fs.renameSync(temp, HISTORY_FILE);
-    renamed = true;
-    log.debug('history.saved', { added: samples.length, merged: theirs.length, kept: history.length, dropped: h.length + theirs.length - history.length });
-  } finally {
-    if (!renamed) try { fs.unlinkSync(temp); } catch {}
-    if (lockOwner() === token) try { fs.unlinkSync(LOCK_FILE); } catch {}
-  }
+  const fresh = samples.filter((s) => !persisted.has(sampleKey(s)));
+  const byDay = new Map();
+  for (const s of fresh) byDay.set(historyDay(s.t), (byDay.get(historyDay(s.t)) || '') + JSON.stringify(s) + '\n');
+  if (byDay.size) fs.mkdirSync(HISTORY_DIR, { recursive: true });
+  for (const [day, lines] of byDay) fs.appendFileSync(path.join(HISTORY_DIR, `${day}.jsonl`), lines);
+  const cutoff = Date.now() - HISTORY_KEEP_MS;
+  h.push(...fresh);
+  history = h.filter((s) => s.t >= cutoff);
+  persisted = new Set(history.map(sampleKey));
+  pruneHistory(cutoff);
+  log.debug('history.saved', { added: fresh.length, days: byDay.size, kept: history.length, dropped: h.length - history.length });
 }
 
 /** Our own weekly readings for an account, for the 7-day history. */
