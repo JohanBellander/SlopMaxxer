@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { cachedClaudeUsage } from '../src/claude-cache.mjs';
 
 function setup(t) {
@@ -70,4 +71,22 @@ test('network failures cool down and old readings expire', async (t) => {
   const result = await cachedClaudeUsage({ ...opts, request: async () => { throw new Error('network'); } });
   assert.equal(result.usage, null);
   assert.equal(result.retryAt - opts.now(), 300_000);
+});
+
+test('a lock held by a live PID is respected while fresh and taken over once older than a minute', async (t) => {
+  const opts = setup(t);
+  const dir = path.join(opts.home, 'claude-usage');
+  fs.mkdirSync(dir, { recursive: true });
+  const lock = path.join(dir, crypto.createHash('sha256').update(opts.key).digest('hex') + '.json.lock');
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid }));
+  let calls = 0;
+  const request = async () => { calls++; return ok(); };
+  assert.match((await cachedClaudeUsage({ ...opts, request })).error, /in progress/);
+  assert.ok(fs.existsSync(lock), 'fresh lock kept');
+  const old = new Date(Date.now() - 120_000);
+  fs.utimesSync(lock, old, old);
+  assert.match((await cachedClaudeUsage({ ...opts, request })).error, /in progress/);
+  assert.ok(!fs.existsSync(lock), 'old lock cleared even though its PID is alive');
+  assert.equal((await cachedClaudeUsage({ ...opts, request })).cached, false);
+  assert.equal(calls, 1);
 });
