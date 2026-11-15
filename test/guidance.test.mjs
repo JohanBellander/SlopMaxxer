@@ -79,6 +79,12 @@ test('an expired model window below its cap does not restrict the account',()=>{
  assert.equal(vm([unread]).accounts[0].status,'restricted');
  const capped=a([w('weekly',20,100),w('weekly_sonnet',100,10,{scope:'sonnet'})]);
  assert.equal(vm([capped]).accounts[0].status,'restricted');
+ const expiredUnread=a([w('weekly',40,100),w('weekly_sonnet',null,-.1,{scope:'sonnet'})]);
+ assert.equal(vm([expiredUnread]).accounts[0].status,'restricted');
+ assert.equal(vm([expiredUnread]).next,null);
+ const expiredStale=a([w('weekly',40,100),w('weekly_sonnet',5,-.1,{scope:'sonnet',observedAt:now-10*60000})]);
+ assert.equal(vm([expiredStale]).accounts[0].status,'restricted');
+ assert.equal(vm([expiredStale]).next,null);
 });
 test('meaningful expiring capacity beats a later reset; tiny headroom does not',()=>{
  const later=a([w('weekly',20,100)]);
