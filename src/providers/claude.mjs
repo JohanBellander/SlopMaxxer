@@ -8,6 +8,7 @@ import { SLOP_HOME } from '../discover.mjs';
 import { cachedClaudeUsage } from '../claude-cache.mjs';
 import { readClaudeKeychainLogin } from '../keychain.mjs';
 import { log } from '../log.mjs';
+import { CFG } from '../../public/guidance.js';
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 
@@ -33,10 +34,11 @@ function identity(meta) {
 }
 
 // Claude Code's private on-disk format: fail closed if the account, age, or shape is unknown.
+// Only used while guidance still calls it fresh; an older one must not block the shared/live path.
 export function localClaudeUsage(meta, now = Date.now()) {
   const cache = meta?.cachedUsageUtilization;
   if (!meta?.oauthAccount?.accountUuid || cache?.accountUuid !== meta.oauthAccount.accountUuid) return null;
-  if (!Number.isFinite(cache.fetchedAtMs) || cache.fetchedAtMs > now || now - cache.fetchedAtMs >= 3600_000) return null;
+  if (!Number.isFinite(cache.fetchedAtMs) || cache.fetchedAtMs > now || now - cache.fetchedAtMs > CFG.freshMinutes * 60_000) return null;
   const usage = cache.utilization;
   if (!usage || !usage.five_hour || !usage.seven_day) return null;
   for (const key of ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet']) {
@@ -93,7 +95,7 @@ export async function fetchClaude({ dir }, { home = SLOP_HOME, request = fetch, 
     dir,
     ...id,
     ...planOf(creds),
-    // Read-only heads-up so guidance can warn before this login rots; never refreshed by us.
+    // Read-only, so guidance can say when this login has expired; never refreshed by us.
     tokenExpiresAt: Number.isFinite(creds?.expiresAt) ? creds.expiresAt : null,
   };
   if (!creds?.accessToken) return { ...base, error: 'Not logged in (no OAuth token)' };
@@ -138,7 +140,9 @@ export async function fetchClaude({ dir }, { home = SLOP_HOME, request = fetch, 
 
   return {
     ...base,
-    stale: reading.cached,
+    // Stale when the last live call failed or a cached reading is too old to call fresh (e.g. a lock wait).
+    stale: !!reading.failed || (reading.cached && Date.now() - reading.fetchedAt > CFG.freshMinutes * 60_000),
+    observedAt: reading.fetchedAt,
     note: reading.cached ? `${reading.error ? reading.error + '; ' : ''}${reading.source || 'cached Claude reading'} from ${new Date(reading.fetchedAt).toISOString()}${retry}` : undefined,
     windows,
     extraUsage: u.extra_usage?.is_enabled

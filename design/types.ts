@@ -17,6 +17,7 @@ export interface LimitWindow {
   usedPct: number | null;
   resetsAt: string | null;
   observedAt: string | null;
+  /** Window length. null = the provider reported none (no calendar-pace nudge); absent = the kind's default. */
   durationMin?: number | null;
   rate?: RateEvidence;
   outlook?: { confidence: 'learning' | 'limited'; days: number; low?: number; high?: number } | null;
