@@ -3,11 +3,13 @@
 // Mirrors the Windows tray: clicking the menu bar item opens a phosphor popup with the server's
 // ready-made verdict, next task and what is left on each account. It is a window of its own,
 // not an NSMenu, because macOS draws menus on glass and dims disabled items.
-// No background polling: it fetches once at start, when the popup opens and on "refresh",
-// so nobody looking still means no usage requests.
+// The title is always on screen, so it refreshes every few minutes, plus when the popup opens
+// and on "refresh". It pauses while the display sleeps or the screen is locked, so an
+// unattended Mac still means no usage requests.
 // popupModel() is plain JS so test/tray.test.mjs can run it; run() is the JXA entry point.
 
 const STALE_TITLE_MS = 10 * 60_000; // an old verdict in the menu bar is worse than none
+const TITLE_REFRESH_MS = 5 * 60_000; // well inside STALE_TITLE_MS, so a reachable server keeps the title
 const WIDTH = 400;
 
 // The phosphor theme (public/tokens.css), same as the Windows popup.
@@ -130,6 +132,7 @@ function run(argv) {
   let fetchedAt = 0;
   let task = null;
   let titleCleared = false; // an old verdict was swapped for the neutral title
+  let asleep = false, locked = false; // nobody can see the title: don't refresh it
 
   const fetchNow = () => {
     if (task) return;
@@ -271,6 +274,10 @@ function run(argv) {
       },
       'openDashboard:': { types: ['void', ['id']], implementation: () => { close(); $.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(dashboardUrl)); } },
       'refresh:': { types: ['void', ['id']], implementation: () => { fetchNow(); render(); } },
+      'screensSlept:': { types: ['void', ['id']], implementation: () => { asleep = true; } },
+      'screensWoke:': { types: ['void', ['id']], implementation: () => { asleep = false; } },
+      'screenLocked:': { types: ['void', ['id']], implementation: () => { locked = true; } },
+      'screenUnlocked:': { types: ['void', ['id']], implementation: () => { locked = false; } },
       'quit:': { types: ['void', ['id']], implementation: () => { $.kill(parentPid, 15); app.terminate(null); } },
       'tick:': {
         types: ['void', ['id']],
@@ -288,7 +295,11 @@ function run(argv) {
             }
             render();
           }
-          else if (!task && !titleCleared && fetchedAt && Date.now() - fetchedAt >= STALE_TITLE_MS) { titleCleared = true; render(); }
+          else if (!task && fetchedAt) {
+            const age = Date.now() - fetchedAt;
+            if (age >= TITLE_REFRESH_MS && !asleep && !locked) fetchNow();
+            else if (!titleCleared && age >= STALE_TITLE_MS) { titleCleared = true; render(); }
+          }
         },
       },
     },
@@ -296,6 +307,12 @@ function run(argv) {
   const target = $.SlopMenuBarTarget.alloc.init;
   item.button.target = target;
   item.button.action = 'toggle:';
+  const workspace = $.NSWorkspace.sharedWorkspace.notificationCenter;
+  workspace.addObserverSelectorNameObject(target, 'screensSlept:', 'NSWorkspaceScreensDidSleepNotification', $());
+  workspace.addObserverSelectorNameObject(target, 'screensWoke:', 'NSWorkspaceScreensDidWakeNotification', $());
+  const distributed = $.NSDistributedNotificationCenter.defaultCenter;
+  distributed.addObserverSelectorNameObject(target, 'screenLocked:', 'com.apple.screenIsLocked', $());
+  distributed.addObserverSelectorNameObject(target, 'screenUnlocked:', 'com.apple.screenIsUnlocked', $());
 
   // Common modes, so the timer also fires while the popup is open and fills it in live.
   const timer = $.NSTimer.timerWithTimeIntervalTargetSelectorUserInfoRepeats(0.5, target, 'tick:', null, true);

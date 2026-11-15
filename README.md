@@ -117,7 +117,7 @@ On Windows, a SlopMaxxer icon also lands in the tray (bottom-right): click it to
 verdict as the dashboard (▲ Speed up., ▼ Slow down., …) plus how much is
 left on each account, double-click it to open the dashboard. On macOS the same verdict sits in
 the menu bar (top-right); click it for the allowances and the dashboard link. It refreshes when
-you open it, never in the background. `--no-tray` turns either off.
+you open it and every 5 minutes while the screen is on and unlocked. `--no-tray` turns either off.
 On macOS, Claude Code keeps its login in the Keychain; SlopMaxxer reads it there (read-only).
 No accounts found? Run `claude` or `codex login` first.
 `@latest` requests the latest release; `@0.1.1` selects a specific version.
