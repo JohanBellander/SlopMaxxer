@@ -132,8 +132,8 @@ To install once, use `npm install -g slopmaxxer`, then run `slopmaxxer`.
 - **Claude logins come from the Keychain.** On macOS, Claude Code stores its login in the login Keychain
   (`Claude Code-credentials`), not in `~/.claude/.credentials.json`. SlopMaxxer reads it with Apple's
   `security` tool and never changes it. Claude Code saves the item with that same tool, so macOS
-  normally does not ask for permission; if your login Keychain is locked, macOS asks you to unlock it. A login in its own folder (`CLAUDE_CONFIG_DIR`) has its own Keychain item
-  and is found the same way.
+  normally does not ask for permission; if your login Keychain is locked, macOS asks you to unlock it.
+  A login in its own folder (`CLAUDE_CONFIG_DIR`) has its own Keychain item and is found the same way.
 - **Muse** is found in `~/.config/muse` (or `$XDG_CONFIG_HOME/muse`).
 
 <div align="center">
