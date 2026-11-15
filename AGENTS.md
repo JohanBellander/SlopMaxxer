@@ -74,7 +74,8 @@ To see what happened: `node -e` over the file, e.g. filter `lvl` of `warn`/`erro
   Tokens must only ever be sent to Anthropic/OpenAI. Muse usage comes from the `muse usage` subprocess; never read its token values.
 - The server must keep binding to `127.0.0.1`, never `0.0.0.0`.
 - Running without `--demo` reads your real logins and calls live usage endpoints; prefer `--demo` while developing.
-  Real state is written to `~/.slopmaxxer/` (history.jsonl, events.jsonl, state.json) — don't commit or delete it.
+  Real state is written to `~/.slopmaxxer/` (history/YYYY-MM-DD.jsonl, legacy history.jsonl, events.jsonl, state.json) — don't commit or delete it.
+  History is append-only per UTC day and may hold duplicates across processes; readers dedupe by t|id|kind. Never rewrite a history file.
 - The usage endpoints aren't public APIs and can change; on failure an account keeps its last reading, flagged stale.
 - Use a non-default port (e.g. 4748) for dev so you don't collide with a running instance on 4747.
 

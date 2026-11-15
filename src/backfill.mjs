@@ -134,10 +134,13 @@ export function claudeDiskUsage(dir, now = Date.now()) {
 
 // ---- turning it into 7 daily bars -------------------------------------------------------------
 
-function dayIndex(t, now) {
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  return Math.floor((t - (start.getTime() - 6 * DAY)) / DAY); // 0 = six days ago, 6 = today
+/** 0 = six local days ago, 6 = today; <0 older, 7 future. Calendar midnights: DST days are 23 or 25h. */
+export function dayIndex(t, now) {
+  const day = new Date(now);
+  day.setDate(day.getDate() - 6);
+  let i = -1;
+  while (i < 7 && t >= day.setHours(0, 0, 0, 0)) { i++; day.setDate(day.getDate() + 1); }
+  return i;
 }
 
 /**
