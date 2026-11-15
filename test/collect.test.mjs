@@ -115,3 +115,19 @@ test("a sample's day file is its UTC day, whatever the local time zone", withHom
   run(home, save([late]), { TZ: 'Pacific/Kiritimati' }); // UTC+14: already the next local day
   assert.deepEqual(fs.readdirSync(dir), [`${day(late.t)}.jsonl`]);
 }));
+
+test('a save after a crash left a torn last line still lands as its own line', withHome((home, dir) => {
+  fs.mkdirSync(dir);
+  const good = sample(1);
+  fs.writeFileSync(path.join(dir, `${day(good.t)}.jsonl`), line(good) + '{"t":17,"id":"a","ki');
+  run(home, save([sample(2)]));
+  assert.deepEqual(loaded(home).map((s) => s.used), [1, 2]);
+}));
+
+test('a legacy history.jsonl of 150k lines loads and dedupes', withHome((home) => {
+  const rows = Array.from({ length: 150_000 }, (_, i) => JSON.stringify({ t: T - 200_000 + (i % 75_000), id: 'a', kind: 'weekly', used: 1 }));
+  fs.writeFileSync(path.join(home, 'history.jsonl'), rows.join('\n') + '\n');
+  const body = `const m = await load('big'); console.log(m.loadHistory().length); m.saveSamples([${JSON.stringify(sample(2))}]);`;
+  assert.equal(Number(run(home, body)), 75_000);
+  assert.equal(fs.existsSync(path.join(home, 'history.jsonl')), true);
+}));

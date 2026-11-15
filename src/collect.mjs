@@ -56,10 +56,10 @@ export function loadHistory() {
   if (history) return history;
   const cutoff = Date.now() - HISTORY_KEEP_MS;
   const all = [];
-  const legacy = [];
-  let { unparsable, found } = readLines(LEGACY_FILE, legacy);
-  legacyNewest = found ? Math.max(-Infinity, ...legacy.map((s) => s.t)) : null;
-  all.push(...legacy);
+  let { unparsable, found } = readLines(LEGACY_FILE, all);
+  // Loops, not spreads: a heavy user's legacy file can exceed the engine's argument limit.
+  legacyNewest = found ? -Infinity : null;
+  if (found) for (const s of all) if (s.t > legacyNewest) legacyNewest = s.t;
   const files = dayFiles().filter((f) => !dayEnded(f, cutoff));
   for (const f of files) unparsable += readLines(path.join(HISTORY_DIR, f), all).unparsable;
   const byKey = new Map(all.filter((s) => s.t >= cutoff).map((s) => [sampleKey(s), s]));
@@ -71,27 +71,34 @@ export function loadHistory() {
 
 /** Drops whole days past the cutoff, and the legacy file once none of it is left in the window. */
 function pruneHistory(cutoff) {
-  for (const f of dayFiles()) if (dayEnded(f, cutoff)) try { fs.unlinkSync(path.join(HISTORY_DIR, f)); } catch {}
+  const remove = (file) => {
+    try { fs.unlinkSync(file); return true; } catch (e) {
+      if (e.code !== 'ENOENT') log.warn('history.prune_failed', { error: e });
+      return false;
+    }
+  };
+  for (const f of dayFiles()) if (dayEnded(f, cutoff)) remove(path.join(HISTORY_DIR, f));
   if (legacyNewest !== null && legacyNewest < cutoff) {
-    try { fs.unlinkSync(LEGACY_FILE); log.info('history.legacy_removed'); } catch {}
+    if (remove(LEGACY_FILE)) log.info('history.legacy_removed');
     legacyNewest = null;
   }
 }
 
 /**
  * Appends the samples this process hasn't written yet to their day files. Appends never overwrite
- * another process's samples (a `status` run while the server is up), and a crash can at worst
- * leave one torn line, which loading skips.
+ * another process's samples (a `status` run while the server is up). Each batch starts with a
+ * newline, so one appended after a crash's torn line doesn't glue onto it; loading skips blank
+ * and torn lines.
  */
 export function saveSamples(samples) {
   const h = loadHistory();
   const fresh = samples.filter((s) => !persisted.has(sampleKey(s)));
   const byDay = new Map();
-  for (const s of fresh) byDay.set(historyDay(s.t), (byDay.get(historyDay(s.t)) || '') + JSON.stringify(s) + '\n');
+  for (const s of fresh) byDay.set(historyDay(s.t), (byDay.get(historyDay(s.t)) ?? '\n') + JSON.stringify(s) + '\n');
   if (byDay.size) fs.mkdirSync(HISTORY_DIR, { recursive: true });
   for (const [day, lines] of byDay) fs.appendFileSync(path.join(HISTORY_DIR, `${day}.jsonl`), lines);
   const cutoff = Date.now() - HISTORY_KEEP_MS;
-  h.push(...fresh);
+  for (const s of fresh) h.push(s);
   history = h.filter((s) => s.t >= cutoff);
   persisted = new Set(history.map(sampleKey));
   pruneHistory(cutoff);
