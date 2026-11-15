@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { derive, deriveAccount, forecastSummary } from '../public/guidance.js';
-import { stateOf, toSlopAccount } from '../src/snapshot.mjs';
+import { stateOf, toSlopAccount, diffEvents } from'../src/snapshot.mjs';
 import { recentRate, completedWindows, weeklyOutlook } from '../src/history.mjs';
 const now = Date.parse('2026-10-31T12:00:00Z'), H=3600000;
 const w=(kind,used,h,extra={})=>({kind,label:kind,scope:'all',usedPct:used,active:true,resetsAt:new Date(now+h*H).toISOString(),observedAt:now,...extra});
@@ -131,6 +131,21 @@ test('availability intervals exclude gaps and reset crossings',()=>{
  const next=stateOf(first,new Date(now+2*60000).toISOString(),prev);
  assert.equal(next.opportunityMinutes,2);
  assert.equal(stateOf(first,new Date(now+H).toISOString(),prev).opportunityMinutes,0);
+});
+test('reset jitter of a second is the same window, a real reset is not',()=>{
+ const jitter=s=>({...w('weekly',30,100),resetsAt:new Date(now+100*H+s*1000).toISOString()});
+ const blocked=a([w('weekly',100,10)],{id:'b'});
+ const first=vm([a([jitter(0)]),blocked]), prev=stateOf(first,new Date(now).toISOString());
+ const jittered=vm([a([jitter(1)]),blocked]);
+ assert.equal(diffEvents(prev,jittered,new Date(now).toISOString()).length,0);
+ assert.equal(stateOf(jittered,new Date(now+2*60000).toISOString(),prev).opportunityMinutes,2);
+ const renewed=vm([a([w('weekly',1,268)]),blocked]);
+ assert.match(diffEvents(prev,renewed,new Date(now).toISOString())[0].msg,/new weekly window/);
+ assert.equal(stateOf(renewed,new Date(now+2*60000).toISOString(),prev).opportunityMinutes,0);
+});
+test('rate history survives reset jitter',()=>{
+ const rows=samples().map((s,i)=>({...s,resetsAt:s.resetsAt+(i>=25?1000:0)}));
+ assert.equal(recentRate(rows,'a',{kind:'weekly',resetsAt:now+H+1000},now).confidence,'observed');
 });
 test('adapter preserves durations, model windows, observation age and missing usage',()=>{
  const raw={id:'a',provider:'claude',observedAt:now-10*60000,windows:[{kind:'session',windowSeconds:7200,usedPercent:null,resetsAt:now+H},{kind:'weekly_opus',usedPercent:100,resetsAt:now+H}]};
