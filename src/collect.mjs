@@ -18,29 +18,45 @@ const HISTORY_KEEP_MS = 35 * 86400_000;
 
 let history = null;
 
-function loadHistory() {
-  if (history) return history;
-  history = [];
+function readHistoryFile() {
+  const samples = [];
   let unparsable = 0;
   try {
     for (const line of fs.readFileSync(HISTORY_FILE, 'utf8').split('\n')) {
-      if (line) try { history.push(JSON.parse(line)); } catch { unparsable++; }
+      if (line) try { samples.push(JSON.parse(line)); } catch { unparsable++; }
     }
   } catch (e) {
     if (e.code !== 'ENOENT') log.warn('history.read_failed', { error: e });
   }
+  return { samples, unparsable };
+}
+
+function loadHistory() {
+  if (history) return history;
+  const { samples, unparsable } = readHistoryFile();
+  history = samples;
   log.info('history.loaded', { samples: history.length, unparsable });
   return history;
 }
 
-function saveSamples(samples) {
+/**
+ * Adds samples and rewrites the file. Another process (a `status` run while the server is up) may
+ * have saved samples since we loaded, so on-disk lines we don't hold are merged in rather than lost.
+ * Written to a temp file and renamed into place, so a crash mid-write can't truncate the history.
+ */
+export function saveSamples(samples) {
   const h = loadHistory();
   h.push(...samples);
+  const key = (s) => `${s.t}|${s.id}|${s.kind}`;
+  const held = new Set(h.map(key));
+  const theirs = readHistoryFile().samples.filter((s) => !held.has(key(s)));
   const cutoff = Date.now() - HISTORY_KEEP_MS;
-  history = h.filter((s) => s.t >= cutoff);
+  history = [...h, ...theirs].filter((s) => s.t >= cutoff).sort((a, b) => a.t - b.t);
   fs.mkdirSync(SLOP_HOME, { recursive: true });
-  fs.writeFileSync(HISTORY_FILE, history.map((s) => JSON.stringify(s)).join('\n') + '\n');
-  log.debug('history.saved', { added: samples.length, kept: history.length, dropped: h.length - history.length });
+  const temp = HISTORY_FILE + `.${process.pid}.tmp`;
+  fs.writeFileSync(temp, history.map((s) => JSON.stringify(s)).join('\n') + '\n');
+  fs.renameSync(temp, HISTORY_FILE);
+  log.debug('history.saved', { added: samples.length, merged: theirs.length, kept: history.length, dropped: h.length + theirs.length - history.length });
 }
 
 /** Our own weekly readings for an account, for the 7-day history. */
