@@ -85,6 +85,9 @@ function run(argv) {
   ObjC.import('Cocoa');
   ObjC.bindFunction('getppid', ['int', []]);
   ObjC.bindFunction('kill', ['int', ['int', 'int']]);
+  ObjC.bindFunction('CGSessionCopyCurrentDictionary', ['id', []]);
+  ObjC.bindFunction('CGMainDisplayID', ['unsigned int', []]);
+  ObjC.bindFunction('CGDisplayIsAsleep', ['bool', ['unsigned int']]);
   // osascript's parent is the server; once it dies we are reparented. Prefer the pid the server
   // passed: if it died before this line ran, getppid() would already be the new parent.
   const parentPid = Number(argv[2]) || $.getppid();
@@ -132,7 +135,12 @@ function run(argv) {
   let fetchedAt = 0;
   let task = null;
   let titleCleared = false; // an old verdict was swapped for the neutral title
-  let asleep = false, locked = false; // nobody can see the title: don't refresh it
+  // Nobody can see the title: don't refresh it. Read once at start (we may launch into a locked
+  // session), then kept current by the sleep/lock notifications below.
+  const session = $.CGSessionCopyCurrentDictionary();
+  const lockedKey = session.isNil() ? null : session.objectForKey('CGSSessionScreenIsLocked');
+  let asleep = $.CGDisplayIsAsleep($.CGMainDisplayID());
+  let locked = Boolean(lockedKey && !lockedKey.isNil() && lockedKey.boolValue);
 
   const fetchNow = () => {
     if (task) return;

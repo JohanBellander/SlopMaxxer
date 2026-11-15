@@ -70,6 +70,19 @@ test('the menu bar refreshes its title only while someone can see it', () => {
   assert.match(src, /'tick:'[\s\S]*?fetchDone\(\)/);
   assert.match(src, /age >= TITLE_REFRESH_MS && !asleep && !locked\) fetchNow\(\)/);
   assert.ok(menubar.TITLE_REFRESH_MS < menubar.STALE_TITLE_MS, 'the title is refreshed before it goes stale');
+  // Starts from the real lock/display state, then follows the notifications.
+  assert.match(src, /let asleep = \$\.CGDisplayIsAsleep\(/);
+  assert.match(src, /objectForKey\('CGSSessionScreenIsLocked'\)/);
+  for (const [center, selector, name] of [
+    ['workspace', 'screensSlept:', 'NSWorkspaceScreensDidSleepNotification'],
+    ['workspace', 'screensWoke:', 'NSWorkspaceScreensDidWakeNotification'],
+    ['distributed', 'screenLocked:', 'com.apple.screenIsLocked'],
+    ['distributed', 'screenUnlocked:', 'com.apple.screenIsUnlocked'],
+  ]) assert.ok(src.includes(`${center}.addObserverSelectorNameObject(target, '${selector}', '${name}', $());`), name);
+  assert.match(src, /'screensSlept:'[^\n]*asleep = true/);
+  assert.match(src, /'screensWoke:'[^\n]*asleep = false/);
+  assert.match(src, /'screenLocked:'[^\n]*locked = true/);
+  assert.match(src, /'screenUnlocked:'[^\n]*locked = false/);
 });
 
 test('tray command runs the shipped PowerShell script against the local API', () => {
