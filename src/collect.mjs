@@ -13,34 +13,96 @@ import { dailyHistory } from './backfill.mjs';
 import { log, since } from './log.mjs';
 
 const FETCHERS = { claude: fetchClaude, codex: fetchCodex, muse: fetchMuse };
-const HISTORY_FILE = path.join(SLOP_HOME, 'history.jsonl');
+const HISTORY_DIR = path.join(SLOP_HOME, 'history');
+const LEGACY_FILE = path.join(SLOP_HOME, 'history.jsonl');
 const HISTORY_KEEP_MS = 35 * 86400_000;
+const DAY_MS = 86400_000;
+const DAY_FILE = /^\d{4}-\d\d-\d\d\.jsonl$/;
 
 let history = null;
+let persisted = null; // keys of samples already on disk, so each process appends a sample once
+let legacyNewest = null; // newest t in the pre-day-files history.jsonl, if there is one
 
-function loadHistory() {
-  if (history) return history;
-  history = [];
+const sampleKey = (s) => `${s.t}|${s.id}|${s.kind}`;
+/** UTC day, so a sample's file is the same in every time zone. */
+export const historyDay = (t) => new Date(t).toISOString().slice(0, 10);
+const dayEnded = (file, cutoff) => Date.parse(file.slice(0, 10)) + DAY_MS <= cutoff;
+
+function dayFiles() {
+  try { return fs.readdirSync(HISTORY_DIR).filter((f) => DAY_FILE.test(f)); } catch (e) {
+    if (e.code !== 'ENOENT') log.warn('history.list_failed', { error: e });
+    return [];
+  }
+}
+
+function readLines(file, into) {
   let unparsable = 0;
   try {
-    for (const line of fs.readFileSync(HISTORY_FILE, 'utf8').split('\n')) {
-      if (line) try { history.push(JSON.parse(line)); } catch { unparsable++; }
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+      if (line) try { into.push(JSON.parse(line)); } catch { unparsable++; }
     }
+    return { unparsable, found: true };
   } catch (e) {
     if (e.code !== 'ENOENT') log.warn('history.read_failed', { error: e });
+    return { unparsable, found: false };
   }
-  log.info('history.loaded', { samples: history.length, unparsable });
+}
+
+/**
+ * History is append-only: one JSONL file per UTC day under history/, plus the legacy history.jsonl
+ * until it ages out. Several processes may append the same sample, so loading dedupes by t|id|kind.
+ */
+export function loadHistory() {
+  if (history) return history;
+  const cutoff = Date.now() - HISTORY_KEEP_MS;
+  const all = [];
+  let { unparsable, found } = readLines(LEGACY_FILE, all);
+  // Loops, not spreads: a heavy user's legacy file can exceed the engine's argument limit.
+  legacyNewest = found ? -Infinity : null;
+  if (found) for (const s of all) if (s.t > legacyNewest) legacyNewest = s.t;
+  const files = dayFiles().filter((f) => !dayEnded(f, cutoff));
+  for (const f of files) unparsable += readLines(path.join(HISTORY_DIR, f), all).unparsable;
+  const byKey = new Map(all.filter((s) => s.t >= cutoff).map((s) => [sampleKey(s), s]));
+  history = [...byKey.values()].sort((a, b) => a.t - b.t);
+  persisted = new Set(byKey.keys());
+  log.info('history.loaded', { samples: history.length, unparsable, dayFiles: files.length, legacy: found });
   return history;
 }
 
-function saveSamples(samples) {
+/** Drops whole days past the cutoff, and the legacy file once none of it is left in the window. */
+function pruneHistory(cutoff) {
+  const remove = (file) => {
+    try { fs.unlinkSync(file); return true; } catch (e) {
+      if (e.code !== 'ENOENT') log.warn('history.prune_failed', { error: e });
+      return false;
+    }
+  };
+  for (const f of dayFiles()) if (dayEnded(f, cutoff)) remove(path.join(HISTORY_DIR, f));
+  if (legacyNewest !== null && legacyNewest < cutoff) {
+    if (remove(LEGACY_FILE)) log.info('history.legacy_removed');
+    legacyNewest = null;
+  }
+}
+
+/**
+ * Appends the samples this process hasn't written yet to their day files. Appends never overwrite
+ * another process's samples (a `status` run while the server is up). Each batch starts with a
+ * newline, so one appended after a crash's torn line doesn't glue onto it; loading skips blank
+ * and torn lines.
+ */
+export function saveSamples(samples) {
   const h = loadHistory();
-  h.push(...samples);
+  const fresh = samples.filter((s) => !persisted.has(sampleKey(s)));
+  const byDay = new Map();
+  for (const s of fresh) byDay.set(historyDay(s.t), (byDay.get(historyDay(s.t)) ?? '\n') + JSON.stringify(s) + '\n');
+  if (byDay.size) fs.mkdirSync(HISTORY_DIR, { recursive: true });
+  for (const [day, lines] of byDay) fs.appendFileSync(path.join(HISTORY_DIR, `${day}.jsonl`), lines);
   const cutoff = Date.now() - HISTORY_KEEP_MS;
+  for (const s of fresh) h.push(s);
   history = h.filter((s) => s.t >= cutoff);
-  fs.mkdirSync(SLOP_HOME, { recursive: true });
-  fs.writeFileSync(HISTORY_FILE, history.map((s) => JSON.stringify(s)).join('\n') + '\n');
-  log.debug('history.saved', { added: samples.length, kept: history.length, dropped: h.length - history.length });
+  persisted = new Set(history.map(sampleKey));
+  pruneHistory(cutoff);
+  log.debug('history.saved', { added: fresh.length, days: byDay.size, kept: history.length, dropped: h.length - history.length });
 }
 
 /** Our own weekly readings for an account, for the 7-day history. */
