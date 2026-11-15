@@ -5,12 +5,15 @@ import { fromLastSamples } from '../src/collect.mjs';
 const H = 3_600_000;
 const now = Date.parse('2026-11-14T07:30:00Z');
 const samples = [
-  { t: now - 13 * H, id: 'm', kind: 'session', used: 40, resetsAt: now - 8 * H },
-  { t: now - 13 * H, id: 'm', kind: 'weekly', used: 8, resetsAt: now + 40 * H, windowSeconds: 604800 },
+  { t: now - 40 * H, id: 'm', kind: 'session', used: 40, resetsAt: now - 8 * H },
+  { t: now - 40 * H, id: 'm', kind: 'weekly', used: 8, resetsAt: now + 40 * H, windowSeconds: 604800 },
 ];
 
 test('a failed read older than 12h falls back to nothing, as before', () => {
   assert.equal(fromLastSamples({ id: 'm', provider: 'muse', error: 'muse usage failed: x' }, now, samples), null);
+  // A window with no reset time can't be aged out by one, so Muse's no-usage case keeps the cutoff.
+  const noReset = [{ t: now - 40 * H, id: 'm', kind: 'weekly', used: 42, resetsAt: null }];
+  assert.equal(fromLastSamples({ id: 'm', provider: 'muse', error: 'x', noUsage: true }, now, noReset), null);
 });
 
 test('Muse sending no usage keeps the last weekly reading until its reset and starts a fresh window', () => {

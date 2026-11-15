@@ -55,13 +55,13 @@ function sparkline(id) {
  * When a live read fails (429, expired token, network), rebuild the windows from the last samples
  * we stored for this account so the dashboard keeps showing something instead of going blank.
  * Muse's server sends no usage at all until the first use in a new window, so for that case a
- * window keeps its last value until it resets (a lower bound, still flagged stale), and one whose
- * reset has passed is back at 0% and not started.
+ * window keeps its last value until its reset (a lower bound, still flagged stale), and one whose
+ * reset has passed is back at 0% and not started. Without a reset time the 12h cutoff still applies.
  */
 export function fromLastSamples(a, now, samples = loadHistory()) {
   const latest = {};
   for (const s of samples) if (s.id === a.id && (!latest[s.kind] || s.t > latest[s.kind].t)) latest[s.kind] = s;
-  const kinds = Object.values(latest).filter((s) => a.noUsage || now - s.t < 12 * 3_600_000);
+  const kinds = Object.values(latest).filter((s) => (a.noUsage && s.resetsAt) || now - s.t < 12 * 3_600_000);
   if (!kinds.length) return null;
   const windows = kinds.map((s) => {
     const reset = a.noUsage && s.resetsAt && s.resetsAt <= now;
