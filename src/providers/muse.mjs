@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { log } from '../log.mjs';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -70,13 +71,16 @@ export async function fetchMuse({ dir }, { run = runMuseUsage } = {}) {
   if (!loggedIn) return { ...base, error: 'Not logged in (run muse login)' };
 
   let usage;
+  const t0 = performance.now();
   try {
     usage = parseUsage(await run(dir));
   } catch (e) {
     const detail = (e.stderr || '').trim().split('\n')[0] || e.message;
+    log.warn('muse_cli.failed', { dir, ms: Math.round(performance.now() - t0), code: e.code, killed: e.killed, signal: e.signal, detail, stdoutBytes: String(e.stdout || '').length });
     return { ...base, error: `muse usage failed: ${detail}`, stale: true };
   }
   const a = usage?.allowance;
+  log[a ? 'info' : 'warn']('muse_cli.ok', { dir, ms: Math.round(performance.now() - t0), hasAllowance: !!a, reason: usage?.reason, tier: a?.tier, asOfAgeMin: Number.isFinite(a?.asOfMs) ? Math.round((Date.now() - a.asOfMs) / 60000) : null });
   if (!a) {
     const reason = usage?.reason === 'server_sent_no_usage' ? 'No usage reported yet — run Muse once to check' : [usage?.reason, usage?.hint].filter(Boolean).join(' — ') || 'no allowance reported';
     return { ...base, error: reason, stale: true, noUsage: usage?.reason === 'server_sent_no_usage' };

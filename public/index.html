@@ -286,16 +286,34 @@ function fitSched() {
 window.addEventListener('resize', fitSched);
 document.fonts?.ready.then(fitSched); // web font swaps in late and changes the text width
 
+// Send dashboard problems to the server's local diagnostic log (never anywhere else).
+function report(level, ev, fields = {}) {
+  try {
+    fetch('/api/log', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ level, ev, ...fields }), keepalive: true }).catch(() => {});
+  } catch { /* logging must not break the page */ }
+}
+window.addEventListener('error', (e) => report('error', 'js_error', { message: e.message, source: e.filename?.split('/').pop(), line: e.lineno, col: e.colno, stack: e.error?.stack?.slice(0, 1500) }));
+window.addEventListener('unhandledrejection', (e) => report('error', 'unhandled_rejection', { message: String(e.reason?.message || e.reason), stack: e.reason?.stack?.slice(0, 1500) }));
+report('info', 'page_load', { viewport: `${innerWidth}x${innerHeight}`, theme: state.theme, ua: navigator.userAgent.slice(0, 120) });
+
 async function load(force = false) {
+  const t0 = performance.now();
   try {
     const r = await fetch('/api/slop' + (force ? '?refresh=1' : ''), { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     state.data = await r.json();
+    if (state.err) report('info', 'load_recovered', { after: state.err });
     state.err = null;
   } catch (e) {
+    if (state.err !== e.message) report('warn', 'load_failed', { message: e.message, force, ms: Math.round(performance.now() - t0) });
     state.err = e.message;
   }
-  rerender();
+  try {
+    rerender();
+  } catch (e) {
+    report('error', 'render_failed', { message: e.message, stack: e.stack?.slice(0, 1500) });
+    throw e;
+  }
 }
 
 // Re-render without stealing focus from whatever the user was on.
