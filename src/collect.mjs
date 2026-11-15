@@ -198,19 +198,31 @@ const stored = new WeakSet(); // provider results already saved as samples, whic
 
 function assemble(config, entries, now, installCount, t0) {
   // The same login can live in two dirs — show it once, prefer the one with data, then the
-  // newer observation (a later reading may show the account ran out). Read at the same time:
-  // the one that says it is out (hard limit, then most used), so no pass hides that; then
-  // the one already stored, so a later pass doesn't switch and store it twice.
+  // newer observation (a later reading may show the account ran out). Two readings of the
+  // same moment are merged conservatively: each window at its higher use, limitReached if
+  // either says so, so no pass can hide that the account is out. The one already stored is
+  // the base, so a later pass doesn't store the login twice.
   const byId = new Map();
   const good = (x) => x.windows?.length && !x.stale && !x.error;
   const seen = (x) => x.observedAt ?? x.at;
-  const rank = (x) => [x.limitReached ? 1 : 0, Math.max(...x.windows.map((w) => w.usedPercent ?? 0)), stored.has(x.raw ?? x) ? 1 : 0];
-  const outranks = (x, y) => { const [p, q] = [rank(x), rank(y)]; const i = p.findIndex((v, k) => v !== q[k]); return i >= 0 && p[i] > q[i]; };
+  const windowKey = (w) => `${w.kind}|${w.scope || ''}`;
+  const merge = (base, other) => {
+    const windows = new Map(base.windows.map((w) => [windowKey(w), w]));
+    for (const w of other.windows) {
+      const b = windows.get(windowKey(w));
+      if (!b || (w.usedPercent ?? -1) > (b.usedPercent ?? -1)) windows.set(windowKey(w), w);
+    }
+    return { ...base, windows: [...windows.values()], limitReached: !!(base.limitReached || other.limitReached) };
+  };
   for (const { a, at, carried } of entries) {
     const id = accountId(a);
     const prev = byId.get(id);
-    if (!prev || (!good(prev) && good(a)) || (good(prev) && good(a) && ((a.observedAt ?? at) > seen(prev) || ((a.observedAt ?? at) === seen(prev) && outranks(a, prev))))) byId.set(id, { ...a, id, at, carried, raw: a, dirs: [...(prev?.dirs || []), a.dir] });
-    else prev.dirs.push(a.dir);
+    const entry = { ...a, id, at, carried, raw: a, dirs: [...(prev?.dirs || []), a.dir] };
+    if (!prev || (!good(prev) && good(a)) || (good(prev) && good(a) && (a.observedAt ?? at) > seen(prev))) byId.set(id, entry);
+    else if (good(prev) && good(a) && (a.observedAt ?? at) === seen(prev)) {
+      const merged = stored.has(a) && !stored.has(prev.raw) ? merge(entry, prev) : merge(prev, entry);
+      byId.set(id, { ...merged, dirs: entry.dirs });
+    } else prev.dirs.push(a.dir);
     if (prev) log.debug('account.deduped', { id, provider: a.provider, dirs: byId.get(id).dirs, kept: byId.get(id).dir });
   }
 

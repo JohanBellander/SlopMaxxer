@@ -115,6 +115,28 @@ test('read at the same moment, a hard limit beats a higher percentage, and equal
   assert.equal(lines() - before, 1, 'one reading of the login per poll');
 });
 
+test('read at the same moment, an exhausted general allowance is not hidden behind a model cap', async () => {
+  const installs = [{ provider: 'claude', dir: '/fake/claude-s-a' }, { provider: 'claude', dir: '/fake/claude-s-b' }];
+  const t0 = Date.now();
+  const r = (dir, all, opus) => ({
+    provider: 'claude', dir, email: 'same@example.test', accountKey: 'scoped', plan: 'Max', planSlug: 'max', observedAt: t0,
+    windows: [
+      { kind: 'weekly', label: 'Weekly', scope: 'all', usedPercent: all, windowSeconds: 7 * 86400, resetsAt: t0 + 86400_000 },
+      { kind: 'weekly_opus', label: 'Weekly · Opus', scope: 'opus', usedPercent: opus, windowSeconds: 7 * 86400, resetsAt: t0 + 86400_000 },
+    ],
+  });
+  await collect({ installs, fetchers: { claude: async (i) => r(i.dir, 10, 10) } });
+  const slowA = gate();
+  let late;
+  await collect({ waitMs: 50, installs, onLate: (p) => (late = p), fetchers: {
+    claude: async (i) => (i.dir.endsWith('-a') ? (await slowA.p, r(i.dir, 100, 100)) : r(i.dir, 20, 100)),
+  } });
+  slowA.open();
+  const complete = await late;
+  assert.equal(complete.accounts[0].windows.find((w) => w.scope === 'all').usedPercent, 100);
+  assert.equal(complete.nextUp, null);
+});
+
 const H = 3_600_000;
 const now = Date.parse('2026-11-14T07:30:00Z');
 const samples = [
