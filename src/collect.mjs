@@ -92,6 +92,16 @@ export function fromLastSamples(a, now, samples = loadHistory()) {
   return { ...a, windows, observedAt: last.getTime(), error: undefined, stale: true, note: `${a.error}; showing the last reading from ${at}` };
 }
 
+/** Samples for a fresh reading, stamped when it was observed; a cached reading served twice is recorded once. */
+export function newSamples(a, history, now) {
+  if (a.stale || a.error) return [];
+  // Never after the analysis time: rates and outlooks ignore samples later than now.
+  const t = Math.min(a.observedAt ?? now, now);
+  return a.windows
+    .filter((w) => !history.some((s) => s.id === a.id && s.kind === w.kind && s.t === t))
+    .map((w) => ({ t, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds }));
+}
+
 function safeDaily(a, now) {
   const t = performance.now();
   try {
@@ -111,7 +121,6 @@ const accountId = (a) =>
 export async function collect() {
   const config = loadConfig();
   const installs = discoverInstalls(config);
-  const now = Date.now();
   const t0 = performance.now();
   log.info('collect.start', { installs: installs.map((i) => `${i.provider} ${i.dir}`) });
 
@@ -125,6 +134,7 @@ export async function collect() {
         log.error('fetch.threw', { provider: inst.provider, dir: inst.dir, ms: since(t), error: e });
         a = { provider: inst.provider, dir: inst.dir, error: e.message };
       }
+      const now = Date.now();
       const outcome = a.error ? 'error' : a.stale ? 'stale' : 'live';
       log[outcome === 'live' ? 'info' : 'warn']('fetch.done', {
         provider: inst.provider, dir: inst.dir, id: accountId(a), ms: since(t), outcome,
@@ -135,6 +145,8 @@ export async function collect() {
       return a;
     }),
   );
+  // Analysis time comes after the reads, so a live reading stamped mid-poll counts in this poll's rates.
+  const now = Date.now();
 
   // The same login can live in two dirs — show it once, prefer the one with data.
   const byId = new Map();
@@ -150,7 +162,7 @@ export async function collect() {
   const accounts = [...byId.values()].map((a) => (a.error ? fromLastSamples(a, now) || a : a)).map((a) => {
     a.observedAt ??= a.stale || a.error ? null : now;
     a.windows = (a.windows || []).map(w => ({ ...w, observedAt: w.observedAt ?? a.observedAt }));
-    const freshSamples = a.stale || a.error ? [] : a.windows.map(w => ({ t: now, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds }));
+    const freshSamples = newSamples(a, loadHistory(), now);
     const evidence = [...loadHistory(), ...freshSamples];
     a.completedWindows = completedWindows(evidence, a.id, now);
     for (const w of a.windows) {
@@ -167,11 +179,7 @@ export async function collect() {
     };
   });
 
-  const samples = [];
-  for (const a of accounts) {
-    if (a.stale || a.error) continue;
-    for (const w of a.windows) samples.push({ t: now, id: a.id, kind: w.kind, used: w.usedPercent, resetsAt: w.resetsAt, scope: w.scope, windowSeconds: w.windowSeconds });
-  }
+  const samples = accounts.flatMap((a) => newSamples(a, loadHistory(), now));
   if (samples.length) saveSamples(samples);
 
   const next = pickNext(accounts, now);

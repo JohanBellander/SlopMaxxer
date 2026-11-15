@@ -14,7 +14,8 @@ const DAY = 86400_000;
 const LOOKBACK = 8 * DAY;
 const SAME_WINDOW_MS = 15 * 60_000; // concurrent sessions report the same reset a few seconds apart
 
-const cache = new Map(); // file → { size, offset, partial, items[], seen:Set }
+const cache = new Map(); // file → { offset, partial:Buffer, items[], seen:Set }
+export const READ = { chunkBytes: 4 * 1024 * 1024 }; // big logs are read in pieces; tests shrink it
 
 function walk(dir, out, sinceMs) {
   let entries;
@@ -29,31 +30,43 @@ function walk(dir, out, sinceMs) {
   return out;
 }
 
+/** Walk `root` and forget cached files under it that left the window. Other roots keep theirs. */
+function walkAndPrune(root, sinceMs) {
+  const files = walk(root, [], sinceMs);
+  const keep = new Set(files);
+  const prefix = root + path.sep;
+  for (const f of cache.keys()) if (f.startsWith(prefix) && !keep.has(f)) cache.delete(f);
+  return files;
+}
+
 /** Parse only what was appended to `file` since last time. parseLine(line, seen) → item | null. */
 function readIncremental(file, parseLine) {
   let st;
   try { st = fs.statSync(file); } catch { cache.delete(file); return []; }
   let c = cache.get(file);
-  if (!c || st.size < c.size) c = { size: 0, offset: 0, partial: '', items: [], seen: new Set() };
+  if (!c || st.size < c.offset) c = { offset: 0, partial: Buffer.alloc(0), items: [], seen: new Set() };
+  cache.set(file, c);
   if (st.size > c.offset) {
     const fd = fs.openSync(file, 'r');
     try {
-      const buf = Buffer.alloc(st.size - c.offset);
-      fs.readSync(fd, buf, 0, buf.length, c.offset);
-      const text = c.partial + buf.toString('utf8');
-      const lines = text.split('\n');
-      c.partial = lines.pop(); // last line may still be being written
-      for (const l of lines) {
-        const it = parseLine(l, c.seen);
-        if (it) c.items.push(it);
+      const buf = Buffer.alloc(Math.min(READ.chunkBytes, st.size - c.offset));
+      while (c.offset < st.size) {
+        const n = fs.readSync(fd, buf, 0, Math.min(buf.length, st.size - c.offset), c.offset);
+        if (n === 0) break;
+        const chunk = Buffer.concat([c.partial, buf.subarray(0, n)]);
+        let start = 0;
+        for (let nl; (nl = chunk.indexOf(10, start)) !== -1; start = nl + 1) {
+          const it = parseLine(chunk.toString('utf8', start, nl), c.seen);
+          if (it) c.items.push(it);
+        }
+        // The last line may still be being written: keep its bytes and decode it once it's complete.
+        c.partial = Buffer.from(chunk.subarray(start));
+        c.offset += n; // saved per chunk, so an error later on doesn't lose this part
       }
-      c.offset = st.size;
     } finally {
       fs.closeSync(fd);
     }
   }
-  c.size = st.size;
-  cache.set(file, c);
   return c.items;
 }
 
@@ -73,7 +86,7 @@ function parseCodexLine(line) {
 
 /** Weekly limit readings found in a Codex home's session logs: [{t, used, resetsAt}], oldest first. */
 export function codexDiskSamples(dir, now = Date.now()) {
-  const files = walk(path.join(dir, 'sessions'), [], now - LOOKBACK);
+  const files = walkAndPrune(path.join(dir, 'sessions'), now - LOOKBACK);
   return files.flatMap((f) => readIncremental(f, parseCodexLine)).filter((s) => s.t >= now - LOOKBACK).sort((a, b) => a.t - b.t);
 }
 
@@ -115,7 +128,7 @@ function parseClaudeLine(line, seen) {
 
 /** Price-weighted usage per API call from a Claude config dir's transcripts: [{t, units}]. */
 export function claudeDiskUsage(dir, now = Date.now()) {
-  const files = walk(path.join(dir, 'projects'), [], now - LOOKBACK);
+  const files = walkAndPrune(path.join(dir, 'projects'), now - LOOKBACK);
   return files.flatMap((f) => readIncremental(f, parseClaudeLine)).filter((s) => s.t >= now - LOOKBACK);
 }
 

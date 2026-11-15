@@ -5,7 +5,7 @@ export const CFG = {
   freshMinutes: 5, limitedPct: 10, meaningfulPct: 20, underusedGapPct: 20,
   sessionOpportunityMinutes: 60, weeklyOpportunityMinutes: 24 * 60,
   forecastHorizonMinutes: 120, switchMargin: 15,
-  paceMinElapsedMinutes: 2 * 24 * 60, paceEarlyMinutes: 24 * 60, tokenWarnMinutes: 24 * 60,
+  paceMinElapsedMinutes: 2 * 24 * 60, paceEarlyMinutes: 24 * 60,
   timelineDays: 7, timelineCellMin: 120,
 };
 export const ACTIONS = {
@@ -23,6 +23,13 @@ export const ACTIONS = {
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const ms = value => typeof value === 'number' ? value : Date.parse(value);
 const valid = n => typeof n === 'number' && Number.isFinite(n);
+const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const pad = n => String(n).padStart(2, '0');
+// Local wall-clock time ("14:38", or "tue 14:38" when not today): still true when the text is stored in events.
+export const clock = (at, now) => {
+  const d = new Date(ms(at)), today = new Date(ms(now)).toDateString() === d.toDateString();
+  return `${today ? '' : DAYS[d.getDay()] + ' '}${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 export const duration = m => m >= 1440 ? `${Math.floor(m / 1440)}d ${Math.floor(m % 1440 / 60)}h` : m >= 60 ? `${Math.floor(m / 60)}h ${Math.floor(m % 60)}m` : `${Math.max(1, Math.ceil(m))}m`;
 
 export function deriveWindow(w, now, durationMin = WEEK_MIN) {
@@ -39,6 +46,8 @@ export function deriveWindow(w, now, durationMin = WEEK_MIN) {
   const ageMinutes = Number.isFinite(observed) ? Math.max(0, (ms(now) - observed) / 60000) : null;
   const fresh = ageMinutes != null && ageMinutes <= CFG.freshMinutes && observed <= ms(now) + 60000;
   const windowMinutes = valid(w.durationMin) && w.durationMin > 0 ? w.durationMin : durationMin;
+  // null = the provider reported no window length; absent = assume the kind's default length.
+  const durationKnown = w.durationMin === undefined || (valid(w.durationMin) && w.durationMin > 0);
   const timeLeftPct = remainingMin != null && windowMinutes > 0 ? clamp(remainingMin / windowMinutes * 100, 0, 100) : null;
   const unusedGapPct = known && timeLeftPct != null ? remainingPct - timeLeftPct : null;
   const rate = w.rate || {};
@@ -48,7 +57,7 @@ export function deriveWindow(w, now, durationMin = WEEK_MIN) {
     const early = remainingPct / rate.high * 60, late = remainingPct / rate.low * 60;
     if (late <= CFG.forecastHorizonMinutes && (remainingMin == null || late < remainingMin)) capRange = [Math.max(1, Math.floor(early)), Math.max(1, Math.ceil(late))];
   }
-  return { ...w, durationMin: windowMinutes, timeLeftPct, unusedGapPct, known, usedPct, remainingPct, remainingMin,
+  return { ...w, durationMin: windowMinutes, durationKnown, timeLeftPct, unusedGapPct, known, usedPct, remainingPct, remainingMin,
     active: known && !idle, idle, expired, fresh, ageMinutes, capRange,
     resetsAt: Number.isFinite(reset) ? new Date(reset).toISOString() : null,
     forecast: reliable ? 'observed' : 'learning',
@@ -70,36 +79,42 @@ export function deriveAccount(a, now, { model = 'any' } = {}) {
   const general = windows.filter(w => !w.scope || w.scope === 'all');
   const scoped = windows.filter(w => w.scope && w.scope !== 'all');
   const applicable = windows.filter(w => !w.scope || w.scope === 'all' || w.scope === model);
-  const restrictions = scoped.filter(w => !w.known || !w.fresh || w.expired || w.usedPct >= 100);
+  // A reset only adds capacity: an expired model window that was below its cap is not a restriction.
+  const restrictions = scoped.filter(w => !w.known || !w.fresh || w.usedPct >= 100);
   const blocked = applicable.filter(w => w.known && w.usedPct >= 100);
   const fresh = !a.stale && !a.error && applicable.length > 0 && applicable.every(w => w.fresh);
   const unknown = !general.length || applicable.some(w => !w.known);
   const checking = applicable.some(w => w.expired);
   const headroom = applicable.length && !unknown ? Math.min(...applicable.map(w => w.remainingPct)) : null;
   const limiting = applicable.filter(w => w.known).sort((x, y) => x.remainingPct - y.remainingPct)[0] || null;
-  // A weekly opportunity is not accessible if the short window already blocks use.
-  const opportunity = applicable.filter(w => w.known && w.remainingMin > 0 && w.remainingPct >= CFG.meaningfulPct &&
+  // A tighter window that stays in force until W resets caps what W can still deliver;
+  // one that resets first renews capacity, so W's opportunity survives.
+  const capOf = w => applicable.filter(l => l !== w && l.known && l.remainingPct < w.remainingPct &&
+    (l.remainingMin == null || l.remainingMin >= w.remainingMin)).sort((x, y) => x.remainingPct - y.remainingPct)[0] || null;
+  const accessible = w => capOf(w)?.remainingPct ?? w.remainingPct;
+  const gap = w => w.timeLeftPct == null ? null : accessible(w) - w.timeLeftPct;
+  const soon = applicable.filter(w => w.known && w.remainingMin > 0 && w.remainingPct >= CFG.meaningfulPct &&
     w.remainingMin <= (w.kind === 'session' ? CFG.sessionOpportunityMinutes : CFG.weeklyOpportunityMinutes))
-    .sort((x, y) => x.remainingMin - y.remainingMin)[0] || null;
+    .sort((x, y) => x.remainingMin - y.remainingMin);
+  const opportunity = soon.find(w => accessible(w) >= CFG.meaningfulPct) || null;
   // Calendar comparison is a utilization nudge, not a prediction from a short usage burst.
-  const underused = applicable.filter(w => w.known && w.fresh && !w.idle && !w.expired &&
-    w.remainingMin > 0 && w.remainingPct >= CFG.meaningfulPct && w.unusedGapPct >= CFG.underusedGapPct)
-    .sort((x, y) => y.unusedGapPct - x.unusedGapPct)[0] || null;
+  const underused = applicable.filter(w => w.known && w.durationKnown && w.fresh && !w.idle && !w.expired &&
+    w.remainingMin > 0 && accessible(w) >= CFG.meaningfulPct && gap(w) >= CFG.underusedGapPct)
+    .sort((x, y) => gap(y) - gap(x))[0] || null;
   const interruption = applicable.filter(w => w.capRange).sort((x, y) => x.capRange[0] - y.capRange[0])[0] || null;
   // Week-to-date average pace, not a burst: warn only 2+ days into the window, and only when
   // that pace empties the weekly allowance a day or more before its reset.
-  const paced = applicable.filter(w => w.kind === 'weekly' && w.known && w.fresh && !w.idle && !w.expired && w.usedPct > 0 && w.remainingPct > CFG.limitedPct && w.remainingMin != null)
+  const paced = applicable.filter(w => w.kind === 'weekly' && w.known && w.durationKnown && w.fresh && !w.idle && !w.expired && w.usedPct > 0 && w.remainingPct > CFG.limitedPct && w.remainingMin != null)
     .map(w => ({ w, elapsed: w.durationMin - w.remainingMin, runOut: (w.durationMin - w.remainingMin) * w.remainingPct / w.usedPct }))
     .filter(p => p.elapsed >= CFG.paceMinElapsedMinutes && p.runOut <= p.w.remainingMin - CFG.paceEarlyMinutes)
     .sort((x, y) => x.runOut - y.runOut)[0] || null;
   const paceWarning = paced ? `At this week's average pace, ${paced.w.label} runs out in about ${duration(paced.runOut)}, well before its reset in ${duration(paced.w.remainingMin)}. Spread long tasks to another account to avoid a dead stretch.` : null;
-  // A stored login token rots while its account sits unused; warn while it can still be refreshed.
+  // Claude Code refreshes its short-lived token when used, so only an already expired token is worth a nudge.
   const tokenAt = ms(a.tokenExpiresAt);
   const tokenMin = Number.isFinite(tokenAt) ? (tokenAt - ms(now)) / 60000 : null;
   const cli = a.provider === 'claude' ? 'Claude Code' : a.provider;
-  const tokenWarning = a.error || tokenMin == null || tokenMin > CFG.tokenWarnMinutes ? null
-    : tokenMin < 0 ? `Login token has expired — open ${cli} once and it refreshes itself.`
-    : `Login token expires in ${duration(tokenMin)} — open ${cli} once before then so this account stays checkable.`;
+  const tokenWarning = a.error || tokenMin == null || tokenMin >= 0 ? null
+    : `Login token has expired — open ${cli} once and it refreshes itself.`;
   const recoveryAt = blocked.length && blocked.every(w => w.resetsAt && !w.expired)
     ? new Date(Math.max(...blocked.map(w => ms(w.resetsAt)))).toISOString() : null;
   let status;
@@ -119,21 +134,25 @@ export function deriveAccount(a, now, { model = 'any' } = {}) {
   else if (status === 'stale') reason = 'Last known values only. Refresh before choosing this account.';
   else if (status === 'checking') reason = 'A reset time has passed. Waiting for a fresh reading to confirm new capacity.';
   else if (status === 'blocked') reason = blocked.length
-    ? `${blocked.map(w => w.label).join(' and ')} allowance used up. ${recoveryAt ? `Expected availability after ${new Date(recoveryAt).toISOString()} (confirm after reset).` : 'Next availability is not known.'}`
+    ? `${blocked.map(w => w.label).join(' and ')} allowance used up. ${recoveryAt ? `Expected availability after ${clock(recoveryAt, now)} (confirm after reset).` : 'Next availability is not known.'}`
     : 'The provider reports a limit. Refresh to check when capacity becomes available.';
   else if (status === 'limited') reason = limiting.remainingMin != null && limiting.remainingMin <= 15
     ? `${Math.round(headroom)}% left on ${limiting.label}, resetting in ${duration(limiting.remainingMin)}. Nearly used up before reset; use the remainder for a suitable small task.`
     : `${Math.round(headroom)}% left on ${limiting.label}. Some capacity remains; consider another account for a long task.`;
   else if (status === 'restricted') reason = `${restrictions.map(w => w.label).join(', ')} needs attention. General allowance remains; check the model-specific limits below before starting work.`;
-  else if (opportunity) reason = `${Math.round(opportunity.remainingPct)}% of ${opportunity.label} remains with reset in ${duration(opportunity.remainingMin)}. Use it for suitable work before reset.`;
-  else if (status === 'underused') reason = `${Math.round(underused.remainingPct)}% of ${underused.label} allowance remains, but only ${Math.round(underused.timeLeftPct)}% of its window is left (${duration(underused.remainingMin)}). Pick up the pace to use more before reset. This compares calendar time, not predicted consumption.`;
+  else if (opportunity) reason = capOf(opportunity)
+    ? `${opportunity.label} resets in ${duration(opportunity.remainingMin)} with ${Math.round(opportunity.remainingPct)}% left, but ${capOf(opportunity).label} has only ${Math.round(capOf(opportunity).remainingPct)}% left until it resets. Use what you can before reset.`
+    : `${Math.round(opportunity.remainingPct)}% of ${opportunity.label} remains with reset in ${duration(opportunity.remainingMin)}. Use it for suitable work before reset.`;
+  else if (status === 'underused') reason = `${capOf(underused)
+    ? `${underused.label} allowance is capped at ${Math.round(capOf(underused).remainingPct)}% by ${capOf(underused).label} until it resets`
+    : `${Math.round(underused.remainingPct)}% of ${underused.label} allowance remains`}, but only ${Math.round(underused.timeLeftPct)}% of its window is left (${duration(underused.remainingMin)}). Pick up the pace to use more before reset. This compares calendar time, not predicted consumption.`;
   else if (status === 'ready') reason = 'A usage window has not started. Ready when you have a suitable task.';
   else reason = 'Capacity remains on the reported limits. Keep working if this account suits your task.';
-  if (status === 'blocked' && opportunity) reason += ` ${opportunity.label} capacity remains, but another limit currently prevents using it.`;
+  if (status === 'blocked' && soon[0]) reason += ` ${soon[0].label} capacity remains, but another limit currently prevents using it.`;
   if (usable && interruption) reason += ` At your recent pace, ${interruption.label} may run out in ${duration(interruption.capRange[0])}–${duration(interruption.capRange[1])}; this is conditional, not a task-size guarantee.`;
   if (usable && paceWarning) reason += ` ${paceWarning}`;
   if (tokenWarning) reason += ` ${tokenWarning}`;
-  const urgency = opportunity ? 100 + 30 * (1 - opportunity.remainingMin / (opportunity.kind === 'session' ? CFG.sessionOpportunityMinutes : CFG.weeklyOpportunityMinutes)) : underused ? 20 + underused.unusedGapPct : 0;
+  const urgency = status === 'expiring' ? 100 + 30 * (1 - opportunity.remainingMin / (opportunity.kind === 'session' ? CFG.sessionOpportunityMinutes : CFG.weeklyOpportunityMinutes)) : status === 'underused' ? 20 + gap(underused) : 0;
   const routeScore = usable ? (headroom || 0) * .4 + urgency - (status === 'limited' ? 60 : 0) - (status === 'restricted' ? 80 : 0) - (paceWarning ? 15 : 0) : -1000;
   const absent = deriveWindow(null, now);
   return { ...a, windows, applicable, five: windows.find(w => w.kind === 'session') || absent,
@@ -171,12 +190,12 @@ export function derive(snap, options = {}) {
     why: (next.status === 'expiring' ? `The reset clock is ticking. ${next.reason}` : next.reason) + backupWhy,
   };
   else if (allBlocked) verdict = { word: 'Cooldown.', arrow: '▼', tone: 'warn',
-    why: (recoveries.length ? `Earliest known availability: ${recoveries[0]}. Confirm after reset.` : 'Reset time is unknown. Refresh to check availability.') + creditsWhy };
+    why: (recoveries.length ? `Earliest known availability: after ${clock(recoveries[0], now)}. Confirm after reset.` : 'Reset time is unknown. Refresh to check availability.') + creditsWhy };
   else if (selected.some(a => a.status === 'restricted')) verdict = { word: 'Check model limits.', arrow: '▶', tone: 'warn', why: 'General capacity remains, but a model-specific limit needs attention.' };
   else {
     // No confirmed pick. Still give direction from last-known readings instead of a bare "refresh".
     const blocked = selected.filter(a => a.status === 'blocked');
-    const usedUp = blocked.length ? `${blocked.map(a => a.slug).join(', ')} used up${recoveries.length ? ` until ${recoveries[0]}` : ''}. ` : '';
+    const usedUp = blocked.length ? `${blocked.map(a => a.slug).join(', ')} used up${recoveries.length ? ` until ${clock(recoveries[0], now)}` : ''}. ` : '';
     const lastKnown = selected.filter(a => (a.status === 'checking' && a.applicable.every(w => w.expired || w.usedPct < 100)) || (a.status === 'stale' && a.headroom > CFG.limitedPct))
       .sort((x, y) => (y.status === 'checking') - (x.status === 'checking') || y.headroom - x.headroom)[0];
     if (lastKnown) {
