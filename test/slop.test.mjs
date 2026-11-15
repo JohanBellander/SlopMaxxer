@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { derive, meterGlyphs, brailleSpark, timelineGlyphs } from '../public/slop.js';
 import { MOCK, shiftedMock } from '../src/mock.mjs';
 import { toSlopAccount, dailyFromSamples, diffEvents } from '../src/snapshot.mjs';
@@ -59,6 +60,35 @@ test('daily usage counts gains per day and treats a drop as a reset', () => {
   assert.equal(days.length, 7);
   assert.equal(days[5], 4); // yesterday: 10 → 14
   assert.equal(days[6], 76 + 5 + 3); // today: 14 → 90, reset → 5, 5 → 8
+});
+
+test('daily usage follows local calendar days across DST changes', (t) => {
+  // TZ must be set before the process computes any dates, so run the check in a child process.
+  const src = (f) => JSON.stringify(new URL(`../src/${f}`, import.meta.url).href);
+  const code = `
+    const stockholm = new Date('2026-01-15T12:00:00Z').getTimezoneOffset() === -60 &&
+      new Date('2026-07-15T12:00:00Z').getTimezoneOffset() === -120;
+    if (!stockholm) { console.log('null'); process.exit(0); }
+    const { dailyFromSamples } = await import(${src('snapshot.mjs')});
+    const { dailyFromReadings } = await import(${src('backfill.mjs')});
+    // Three readings 0 → 1 → 3: the last two sit 23:30 and 00:30 local around a DST midnight.
+    const run = (times, now) => {
+      const ts = times.map(Date.parse), at = Date.parse(now);
+      return [dailyFromSamples(ts.map((x, i) => [x, [0, 1, 3][i]]), at),
+        dailyFromReadings(ts.map((x, i) => ({ t: x, used: [0, 1, 3][i], resetsAt: at + 864e5 })), at)];
+    };
+    console.log(JSON.stringify({
+      fallBack: run(['2026-10-24T20:00:00Z', '2026-10-24T21:30:00Z', '2026-10-24T22:30:00Z'], '2026-10-26T11:00:00Z'),
+      springForward: run(['2026-03-28T20:00:00Z', '2026-03-28T22:30:00Z', '2026-03-28T23:30:00Z'], '2026-03-30T11:00:00Z'),
+    }));`;
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', code],
+    { env: { ...process.env, TZ: 'Europe/Stockholm' }, encoding: 'utf8' });
+  const res = JSON.parse(out);
+  if (!res) return t.skip('this Node build ignores TZ=Europe/Stockholm (common on Windows)');
+  // 2026-10-25 and 2026-03-29 are the DST days (idx 5); the day before is idx 4.
+  for (const [name, results] of Object.entries(res)) {
+    for (const days of results) assert.deepEqual(days, [0, 0, 0, 0, 1, 2, 0], name);
+  }
 });
 
 test('events describe observed capacity changes without fabricated HTTP errors or ranks', () => {
