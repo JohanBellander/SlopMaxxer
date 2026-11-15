@@ -61,6 +61,21 @@ test('the same login in two folders shows this poll\'s reading, not one carried 
   slowA.open();
 });
 
+test('the complete answer keeps the newer of two readings of one login, even if it came first', async () => {
+  const installs = [{ provider: 'codex', dir: '/fake/codex-c' }, { provider: 'codex', dir: '/fake/codex-d' }];
+  const at = (dir, used, observedAt) => ({ ...codexReading(dir, used), accountKey: 'same-login-2', observedAt });
+  await collect({ installs, fetchers: { codex: async (i) => at(i.dir, 10, Date.now()) } });
+  const slowD = gate();
+  let late;
+  await collect({ waitMs: 50, installs, onLate: (p) => (late = p), fetchers: {
+    codex: async (i) => (i.dir.endsWith('-c') ? at(i.dir, 100, Date.now()) : (await slowD.p, at(i.dir, 10, Date.now() - 60_000))),
+  } });
+  slowD.open();
+  const complete = await late;
+  assert.equal(complete.accounts[0].windows[0].usedPercent, 100, 'the older late reading must not hide that it ran out');
+  assert.equal(complete.nextUp, null);
+});
+
 test('two polls waiting on the same slow provider store its reading once', async () => {
   const installs = [{ provider: 'muse', dir: '/fake/muse-overlap' }];
   const lines = () => fs.readFileSync(path.join(process.env.SLOPMAXXER_HOME, 'history.jsonl'), 'utf8').trim().split('\n').length;

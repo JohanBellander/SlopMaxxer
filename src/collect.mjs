@@ -197,14 +197,15 @@ export async function collect({ waitMs = Infinity, onLate, installs: given, fetc
 const stored = new WeakSet(); // provider results already saved as samples, whichever poll assembled them
 
 function assemble(config, entries, now, installCount, t0) {
-  // The same login can live in two dirs — show it once, prefer the one with data, and a
-  // reading from this pass over one carried from before (it may show the account ran out).
+  // The same login can live in two dirs — show it once, prefer the one with data, then the
+  // newer observation (a later reading may show the account ran out).
   const byId = new Map();
   const good = (x) => x.windows?.length && !x.stale && !x.error;
+  const seen = (x) => x.observedAt ?? x.at;
   for (const { a, at, carried } of entries) {
     const id = accountId(a);
     const prev = byId.get(id);
-    if (!prev || (!good(prev) && good(a)) || (good(prev) && good(a) && prev.carried && !carried)) byId.set(id, { ...a, id, at, carried, raw: a, dirs: [...(prev?.dirs || []), a.dir] });
+    if (!prev || (!good(prev) && good(a)) || (good(prev) && good(a) && ((a.observedAt ?? at) > seen(prev) || ((a.observedAt ?? at) === seen(prev) && prev.carried && !carried)))) byId.set(id, { ...a, id, at, carried, raw: a, dirs: [...(prev?.dirs || []), a.dir] });
     else prev.dirs.push(a.dir);
     if (prev) log.debug('account.deduped', { id, provider: a.provider, dirs: byId.get(id).dirs, kept: byId.get(id).dir });
   }
