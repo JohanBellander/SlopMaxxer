@@ -17,7 +17,7 @@ for the user-facing feature list and guidance rules.
 ```
 bin/slopmaxxer.mjs      CLI: serve (default) · status [--json] · accounts; flags --port --no-open --no-tray --demo
 src/tray.mjs + tray/    tray companions, zero deps, read /api/slop and die with the server: Windows tray (PowerShell/WinForms),
-                        macOS menu bar (JXA via osascript; `osascript -l JavaScript src/tray/slopmaxxer-menubar.js <api> <dashboard> --dump` prints its menu)
+                        macOS menu bar (JXA via osascript; `osascript -l JavaScript src/tray/slopmaxxer-menubar.js <api> <dashboard> --render <png>` draws its popup)
 src/keychain.mjs        macOS: Claude Code logins live in the Keychain, read with `security find-generic-password` only
 src/discover.mjs        finds installs (~/.claude*, ~/.codex*, ~/.config/muse, CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_CONFIG_HOME, ~/.slopmaxxer/config.json)
 src/providers/          claude.mjs · codex.mjs — live limit reads via the CLIs' own (undocumented) usage endpoints; muse.mjs — via `muse usage --json` (token stays in the Muse CLI)
