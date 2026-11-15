@@ -84,11 +84,12 @@ process.on('unhandledRejection', (error) => {
   process.exit(1);
 });
 // Log the signal, then die by it as Node would have, so callers still see how we stopped.
+const exitFields = () => ({ uptimeSec: Math.round((Date.now() - startedAt) / 1000), rssMb: Math.round(process.memoryUsage().rss / 1048576) });
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => {
-  log.info('process.signal', { signal: sig });
+  log.info('process.signal', { signal: sig, ...exitFields() }); // dying by the signal skips 'exit'
   process.kill(process.pid, sig);
 });
-process.once('exit', (code) => log.info('process.exit', { code, uptimeSec: Math.round((Date.now() - startedAt) / 1000), rssMb: Math.round(process.memoryUsage().rss / 1048576) }));
+process.once('exit', (code) => log.info('process.exit', { code, ...exitFields() }));
 
 const c = process.stdout.isTTY && !process.env.NO_COLOR
   ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, yel: (s) => `\x1b[33m${s}\x1b[0m`, grn: (s) => `\x1b[32m${s}\x1b[0m`, mag: (s) => `\x1b[35m${s}\x1b[0m` }
